@@ -56,66 +56,62 @@
         <div id="performanceChart" class="chart"></div>
     </div>
 
-    <div class="stocks-grid">
-        {% for item in portfolio %}
-            <div class="stock-card">
-                <div class="stock-header">
-                    <h3 class="stock-symbol">{{ item.stock.symbol }}</h3>
-                    <span class="stock-date">Since {{ item.stock.add_date.strftime('%Y-%m-%d') }}</span>
-                </div>
-
-                <div class="stock-prices">
-                    <div class="price-row">
-                        <span class="price-label">Shares:</span>
-                        <span class="price-value">{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</span>
-                    </div>
-                    <div class="price-row">
-                        <span class="price-label">Price on {{ item.stock.add_date.strftime('%Y-%m-%d') }}:</span>
-                        <span class="price-value">${{ "%.2f"|format(item.stock.initial_price) }}</span>
-                    </div>
-                    <div class="price-row">
-                        <span class="price-label">Initial Value:</span>
-                        <span class="price-value">${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</span>
-                    </div>
-                    {% if item.current_price %}
-                        <div class="price-row">
-                            <span class="price-label">Current Price:</span>
-                            <span class="price-value">${{ "%.2f"|format(item.current_price) }}</span>
-                        </div>
-                        {% if item.current_value %}
-                            <div class="price-row">
-                                <span class="price-label">Current Value:</span>
-                                <span class="price-value">${{ "{:,.2f}".format(item.current_value) }}</span>
-                            </div>
-                        {% endif %}
-                    {% else %}
-                        <div class="price-row">
-                            <span class="price-label">Current Price:</span>
-                            <span class="price-value error">N/A</span>
-                        </div>
-                    {% endif %}
-
-                {% if item.value_change is not none and item.percent_change is not none %}
-                    <div class="stock-change">
-                        <div class="change-amount {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ "↑" if item.value_change >= 0 else "↓" }}
-                            ${{ "{:,.2f}".format(item.value_change|abs) }}
-                            ({{ "%.2f"|format(item.percent_change) }}%)
-                        </div>
-                    </div>
-                {% else %}
-                    <div class="stock-change">
-                        <div class="change-amount error">Unable to calculate change</div>
-                    </div>
-                {% endif %}
-
-                <div class="stock-actions">
-                    <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');">
-                        <button type="submit" class="btn btn-danger">Remove</button>
-                    </form>
-                </div>
-            </div>
-        {% endfor %}
+    <div class="stocks-table-container">
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Shares</th>
+                    <th>Date Specified</th>
+                    <th>Price at Date</th>
+                    <th>Price Today</th>
+                    <th>Market Value at Date</th>
+                    <th>Market Value Today</th>
+                    <th>% Difference</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in portfolio %}
+                    <tr>
+                        <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                        <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                        <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                        <td>
+                            {% if item.current_price %}
+                                ${{ "%.2f"|format(item.current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                        <td>
+                            {% if item.current_value %}
+                                ${{ "{:,.2f}".format(item.current_value) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.value_change is not none and item.percent_change is not none %}
+                                <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if item.value_change >= 0 else "↓" }}
+                                    {{ "%.2f"|format(item.percent_change) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td class="action-cell">
+                            <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');">
+                                <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 {% else %}
     <div class="empty-state">
