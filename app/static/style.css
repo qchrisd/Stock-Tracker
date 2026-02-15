@@ -381,6 +381,8 @@ main {
     background-color: #f0f0f0;
     font-weight: 600;
     border-top: 2px solid #bdc3c7;
+    cursor: pointer;
+    user-select: none;
 }
 
 .stocks-table .portfolio-average {
@@ -389,6 +391,36 @@ main {
 
 .stocks-table .watchlist-average {
     background-color: #fffbf0;
+}
+
+.stocks-table .average-row:hover {
+    opacity: 0.9;
+}
+
+.stocks-table .toggle-cell {
+    text-align: center;
+    padding: 16px 12px;
+    width: 50px;
+}
+
+.stocks-table .toggle-arrow {
+    display: inline-block;
+    transition: transform 0.3s ease;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.stocks-table .detail-row {
+    background-color: #fafafa;
+    border-left: 3px solid #3498db;
+}
+
+.stocks-table .portfolio-detail {
+    border-left-color: #27ae60;
+}
+
+.stocks-table .watchlist-detail {
+    border-left-color: #f39c12;
 }
 
 .stocks-table .error {
