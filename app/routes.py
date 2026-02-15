@@ -156,19 +156,45 @@ def get_stock_data(symbol):
 @main_bp.route('/api/chart-data')
 def get_chart_data():
     """API endpoint to get historical data for charting"""
+    from datetime import datetime, timedelta, date
+    
     stocks = Stock.query.all()
     
     if not stocks:
         return jsonify({'error': 'No stocks tracked yet'}), 404
     
+    # Get time frame parameter
+    time_frame = request.args.get('time_frame', 'all', type=str)
+    
+    # Calculate date range based on time frame
+    today = date.today()
+    earliest_date = min(stock.add_date for stock in stocks)
+    
+    if time_frame == '1d':
+        start_date = today - timedelta(days=1)
+    elif time_frame == '5d':
+        start_date = today - timedelta(days=5)
+    elif time_frame == '30d':
+        start_date = today - timedelta(days=30)
+    elif time_frame == '6m':
+        start_date = today - timedelta(days=180)
+    elif time_frame == '1y':
+        start_date = today - timedelta(days=365)
+    elif time_frame == 'ytd':
+        # Year to date: January 1 of current year
+        start_date = date(today.year, 1, 1)
+    else:  # 'all' or default
+        start_date = earliest_date
+    
+    # Don't go before earliest stock addition date
+    if start_date < earliest_date:
+        start_date = earliest_date
+    
     chart_data = {'stocks': {}, 'sp500': None}
     
     try:
-        # Get earliest add_date to use for S&P 500
-        earliest_date = min(stock.add_date for stock in stocks)
-        
         # Fetch S&P 500 data
-        sp500_data = Stock.get_sp500_historical_data(earliest_date)
+        sp500_data = Stock.get_sp500_historical_data(start_date)
         if sp500_data:
             chart_data['sp500'] = sp500_data
         
@@ -176,10 +202,13 @@ def get_chart_data():
         for stock in stocks:
             hist_data = stock.get_historical_data()
             if hist_data:
-                chart_data['stocks'][stock.symbol] = {
-                    'name': stock.symbol,
-                    'data': hist_data
-                }
+                # Filter data based on start_date
+                filtered_data = [d for d in hist_data if d['date'] >= start_date.isoformat()]
+                if filtered_data:
+                    chart_data['stocks'][stock.symbol] = {
+                        'name': stock.symbol,
+                        'data': filtered_data
+                    }
         
         return jsonify(chart_data)
     except Exception as e:
