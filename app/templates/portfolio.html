@@ -44,13 +44,13 @@
         <h3>Portfolio Performance vs S&P 500</h3>
         
         <div class="chart-timeframe-buttons">
-            <button class="timeframe-btn active" data-timeframe="1d">1D</button>
+            <button class="timeframe-btn" data-timeframe="1d">1D</button>
             <button class="timeframe-btn" data-timeframe="5d">5D</button>
             <button class="timeframe-btn" data-timeframe="30d">1M</button>
             <button class="timeframe-btn" data-timeframe="6m">6M</button>
             <button class="timeframe-btn" data-timeframe="1y">1Y</button>
             <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
-            <button class="timeframe-btn" data-timeframe="all">All</button>
+            <button class="timeframe-btn active" data-timeframe="all">All</button>
         </div>
         
         <div id="performanceChart" class="chart"></div>
@@ -241,8 +241,8 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error loading chart data:', error));
     }
     
-    // Load initial chart with 1 day view
-    loadChart('1d');
+    // Load initial chart with all time view
+    loadChart('all');
     
     // Attach event listeners to time frame buttons
     document.querySelectorAll('.timeframe-btn').forEach(btn => {
