@@ -4,10 +4,11 @@ A small Python web application for tracking stock prices from a specified date t
 
 ## Features
 
-- **Add Stocks**: Specify a stock symbol and a date to start tracking from
-- **Track Price Changes**: Automatically fetch historical stock prices and current prices
-- **View Portfolio**: See all your tracked stocks in a beautiful, responsive dashboard
-- **Calculate Returns**: View both absolute price changes and percentage returns
+- **Add Stocks with Share Count**: Specify a stock symbol, number of shares, and a date to start tracking from
+- **Track Market Value Changes**: Automatically calculates total market value (shares × price) instead of just per-share changes
+- **View Portfolio Dashboard**: See all your tracked stocks with comprehensive value metrics
+- **Calculate Returns**: View both absolute value changes and percentage returns on your total investment
+- **Portfolio Summary**: See your total investment value, current portfolio value, and overall gains/losses
 - **Easy Management**: Remove stocks from your portfolio with a single click
 
 ## Requirements
@@ -47,15 +48,24 @@ A small Python web application for tracking stock prices from a specified date t
 3. **Add a stock:**
    - Click the "+ Add Stock" button
    - Enter a stock symbol (e.g., AAPL, GOOGL, MSFT)
+   - Enter the number of shares you own
    - Choose the date you want to track from
-   - The app will fetch the price on that date and calculate changes
+   - The app will fetch the price on that date and calculate value changes
 
 4. **View your portfolio:**
    - See all tracked stocks with their:
-     - Initial price on your specified date
-     - Current price
-     - Absolute price change ($)
+     - Number of shares owned
+     - Per-share price on your reference date
+     - Total market value on your reference date
+     - Current per-share price
+     - Current total market value
+     - Absolute value change ($)
      - Percentage change (%)
+   - View portfolio totals showing:
+     - Total initial investment value
+     - Current total portfolio value
+     - Overall portfolio gain/loss ($)
+     - Overall portfolio gain/loss (%)
 
 5. **Remove a stock:**
    - Click the "Remove" button on any stock card
@@ -82,11 +92,13 @@ Stock-Tracker/
 
 ## How It Works
 
-1. **Database**: Uses SQLite (via SQLAlchemy) to store stock symbols, dates, and initial prices
+1. **Database**: Uses SQLite (via SQLAlchemy) to store stock symbols, dates, share counts, and initial prices
 2. **Stock Data**: Retrieves historical and current prices from Yahoo Finance via yfinance
-3. **Calculations**: 
-   - **Price Change**: Current Price - Initial Price
-   - **Percentage Change**: (Price Change / Initial Price) × 100%
+3. **Value Calculations**: 
+   - **Initial Market Value**: Shares × Initial Price (per-share price on add_date)
+   - **Current Market Value**: Shares × Current Price (today's price)
+   - **Value Change**: Current Market Value - Initial Market Value
+   - **Percentage Change**: (Value Change / Initial Market Value) × 100%
 
 ## Database
 
@@ -96,7 +108,8 @@ The app automatically creates a SQLite database (`stock_tracker.db`) on first ru
 - `id`: Unique identifier
 - `symbol`: Stock ticker symbol (e.g., AAPL)
 - `add_date`: The date you're tracking from
-- `initial_price`: Stock price on the add_date
+- `shares`: Number of shares owned (supports decimals)
+- `initial_price`: Stock price per share on the add_date
 - `date_added`: When the stock was added to your portfolio
 
 ## Configuration
@@ -127,11 +140,14 @@ Response:
 {
   "id": 1,
   "symbol": "AAPL",
-  "add_date": "2025-01-15",
-  "initial_price": 189.95,
-  "current_price": 195.50,
-  "price_change": 5.55,
-  "percent_change": 2.92,
+  "shares": 50,
+  "add_date": "2025-01-01",
+  "initial_price": 150.00,
+  "initial_value": 7500.00,
+  "current_price": 160.00,
+  "current_value": 8000.00,
+  "value_change": 500.00,
+  "percent_change": 6.67,
   "date_added": "2026-02-15T10:30:00"
 }
 ```
@@ -150,11 +166,15 @@ Response:
 ## Future Enhancements
 
 - Add user authentication for personal portfolios
-- Export portfolio data to CSV
-- Historical charts and visualizations
-- Price alerts and notifications
+- Portfolio performance charts and visualizations
+- Historical value tracking over time
+- Price alerts and notifications for significant changes
+- Export portfolio data to CSV/PDF
 - Support for multiple portfolio tracking
+- Dividend tracking and yield calculations
+- Tax lot accounting for more detailed analysis
 - Mobile app version
+- Real-time market data with WebSocket updates
 
 ## License
 

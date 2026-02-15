@@ -7,22 +7,42 @@ main_bp = Blueprint('main', __name__)
 
 @main_bp.route('/')
 def index():
-    """Display all tracked stocks and their price changes"""
+    """Display all tracked stocks and their value changes"""
     stocks = Stock.query.all()
     portfolio_data = []
+    total_initial_value = 0
+    total_current_value = 0
 
     for stock in stocks:
         try:
+            current_price = stock.get_current_price()
+            current_value = stock.get_current_value()
+            value_change = stock.get_value_change()
+            percent_change = stock.get_value_change_percent()
+            
             portfolio_data.append({
                 'stock': stock,
-                'current_price': stock.get_current_price(),
-                'price_change': stock.get_price_change(),
-                'percent_change': stock.get_price_change_percent()
+                'current_price': current_price,
+                'current_value': current_value,
+                'value_change': value_change,
+                'percent_change': percent_change
             })
+            
+            initial_value = stock.get_initial_value()
+            total_initial_value += initial_value
+            if current_value is not None:
+                total_current_value += current_value
         except Exception as e:
             flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
 
-    return render_template('index.html', portfolio=portfolio_data)
+    portfolio_summary = {
+        'total_initial_value': total_initial_value,
+        'total_current_value': total_current_value if total_current_value > 0 else None,
+        'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
+        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
+    }
+
+    return render_template('index.html', portfolio=portfolio_data, summary=portfolio_summary)
 
 
 @main_bp.route('/add', methods=['GET', 'POST'])
@@ -31,9 +51,10 @@ def add_stock():
     if request.method == 'POST':
         symbol = request.form.get('symbol', '').upper().strip()
         date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
         
-        if not symbol or not date_str:
-            flash('Please provide both symbol and date', 'error')
+        if not symbol or not date_str or not shares_str:
+            flash('Please provide symbol, date, and number of shares', 'error')
             return redirect(url_for('main.add_stock'))
 
         # Check if stock already exists
@@ -42,6 +63,16 @@ def add_stock():
             return redirect(url_for('main.add_stock'))
 
         try:
+            # Validate and parse shares
+            try:
+                shares = float(shares_str)
+                if shares <= 0:
+                    flash('Number of shares must be greater than 0', 'error')
+                    return redirect(url_for('main.add_stock'))
+            except ValueError:
+                flash('Invalid number of shares. Please enter a valid number', 'error')
+                return redirect(url_for('main.add_stock'))
+
             # Parse the date
             add_date = datetime.strptime(date_str, '%Y-%m-%d').date()
 
@@ -65,13 +96,15 @@ def add_stock():
             new_stock = Stock(
                 symbol=symbol,
                 add_date=add_date,
+                shares=shares,
                 initial_price=initial_price
             )
             
             db.session.add(new_stock)
             db.session.commit()
 
-            flash(f'Successfully added {symbol} at ${initial_price:.2f} on {add_date}', 'success')
+            total_value = shares * initial_price
+            flash(f'Successfully added {shares} shares of {symbol} at ${initial_price:.2f} (Total: ${total_value:,.2f}) on {add_date}', 'success')
             return redirect(url_for('main.index'))
 
         except ValueError:

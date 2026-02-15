@@ -5,7 +5,7 @@
 {% block content %}
 <div class="form-header">
     <h2>Add a New Stock</h2>
-    <p class="subtitle">Track the price change from a specific date to today</p>
+    <p class="subtitle">Track the value change of your stock holdings from a specific date to today</p>
 </div>
 
 <div class="form-container">
@@ -25,6 +25,21 @@
         </div>
 
         <div class="form-group">
+            <label for="shares">Number of Shares:</label>
+            <input 
+                type="number" 
+                id="shares" 
+                name="shares" 
+                placeholder="e.g., 10, 100.5" 
+                step="0.01"
+                min="0.01"
+                required 
+                class="form-input"
+            >
+            <small>Enter the number of shares you own (supports decimals)</small>
+        </div>
+
+        <div class="form-group">
             <label for="date">Start Date:</label>
             <input 
                 type="date" 
@@ -33,7 +48,7 @@
                 required 
                 class="form-input"
             >
-            <small>The date you want to track the stock price from</small>
+            <small>The date you want to track the stock value from</small>
         </div>
 
         <div class="form-actions">
@@ -46,9 +61,19 @@
         <h3>How it works:</h3>
         <ul>
             <li>Enter a valid stock symbol (e.g., AAPL for Apple)</li>
+            <li>Specify the number of shares you own</li>
             <li>Choose the date you want to start tracking from</li>
             <li>The app will fetch the stock price on that date</li>
-            <li>You'll see the price change and percentage change up to today</li>
+            <li>You'll see the total market value change (shares × price) up to today</li>
+        </ul>
+        <h3 style="margin-top: 20px;">Example:</h3>
+        <ul>
+            <li>100 shares of AAPL on 2025-01-01</li>
+            <li>Price on 2025-01-01: $150</li>
+            <li>Initial Value: 100 × $150 = $15,000</li>
+            <li>Current Price: $160</li>
+            <li>Current Value: 100 × $160 = $16,000</li>
+            <li>Gain: $1,000 (6.67%)</li>
         </ul>
     </div>
 </div>

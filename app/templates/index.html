@@ -13,9 +13,31 @@
 {% if portfolio %}
     <div class="portfolio-stats">
         <div class="stat-card">
-            <h3>Total Tracked Stocks</h3>
+            <h3>Total Stocks</h3>
             <p class="stat-value">{{ portfolio|length }}</p>
         </div>
+        {% if summary.total_initial_value > 0 %}
+            <div class="stat-card">
+                <h3>Initial Investment</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_current_value %}
+            <div class="stat-card">
+                <h3>Current Value</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
+            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Total Gain/Loss</h3>
+                <p class="stat-value">
+                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
+                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
+                </p>
+            </div>
+        {% endif %}
     </div>
 
     <div class="stocks-grid">
@@ -28,27 +50,40 @@
 
                 <div class="stock-prices">
                     <div class="price-row">
-                        <span class="price-label">Initial Price:</span>
+                        <span class="price-label">Shares:</span>
+                        <span class="price-value">{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</span>
+                    </div>
+                    <div class="price-row">
+                        <span class="price-label">Price on {{ item.stock.add_date.strftime('%Y-%m-%d') }}:</span>
                         <span class="price-value">${{ "%.2f"|format(item.stock.initial_price) }}</span>
+                    </div>
+                    <div class="price-row">
+                        <span class="price-label">Initial Value:</span>
+                        <span class="price-value">${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</span>
                     </div>
                     {% if item.current_price %}
                         <div class="price-row">
                             <span class="price-label">Current Price:</span>
                             <span class="price-value">${{ "%.2f"|format(item.current_price) }}</span>
                         </div>
+                        {% if item.current_value %}
+                            <div class="price-row">
+                                <span class="price-label">Current Value:</span>
+                                <span class="price-value">${{ "{:,.2f}".format(item.current_value) }}</span>
+                            </div>
+                        {% endif %}
                     {% else %}
                         <div class="price-row">
                             <span class="price-label">Current Price:</span>
                             <span class="price-value error">N/A</span>
                         </div>
                     {% endif %}
-                </div>
 
-                {% if item.price_change is not none and item.percent_change is not none %}
+                {% if item.value_change is not none and item.percent_change is not none %}
                     <div class="stock-change">
-                        <div class="change-amount {% if item.price_change >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ "↑" if item.price_change >= 0 else "↓" }}
-                            ${{ "%.2f"|format(item.price_change|abs) }}
+                        <div class="change-amount {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ "↑" if item.value_change >= 0 else "↓" }}
+                            ${{ "{:,.2f}".format(item.value_change|abs) }}
                             ({{ "%.2f"|format(item.percent_change) }}%)
                         </div>
                     </div>

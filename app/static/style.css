@@ -164,9 +164,24 @@ main {
 }
 
 .stat-value {
-    font-size: 36px;
+    font-size: 28px;
     font-weight: 700;
     color: #3498db;
+}
+
+.stat-percent {
+    font-size: 14px;
+    display: block;
+    color: #7f8c8d;
+    font-weight: 500;
+}
+
+.stat-card.positive .stat-value {
+    color: #27ae60;
+}
+
+.stat-card.negative .stat-value {
+    color: #e74c3c;
 }
 
 /* Stocks Grid */
