@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Portfolio{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Your Portfolio</h2>
+    {% if portfolio %}
+        <p class="subtitle">Tracking {{ portfolio|length }} stock{{ 's' if portfolio|length != 1 else '' }}</p>
+    {% endif %}
+</div>
+
+{% if portfolio %}
+    <div class="portfolio-stats">
+        <div class="stat-card">
+            <h3>Total Tracked Stocks</h3>
+            <p class="stat-value">{{ portfolio|length }}</p>
+        </div>
+    </div>
+
+    <div class="stocks-grid">
+        {% for item in portfolio %}
+            <div class="stock-card">
+                <div class="stock-header">
+                    <h3 class="stock-symbol">{{ item.stock.symbol }}</h3>
+                    <span class="stock-date">Since {{ item.stock.add_date.strftime('%Y-%m-%d') }}</span>
+                </div>
+
+                <div class="stock-prices">
+                    <div class="price-row">
+                        <span class="price-label">Initial Price:</span>
+                        <span class="price-value">${{ "%.2f"|format(item.stock.initial_price) }}</span>
+                    </div>
+                    {% if item.current_price %}
+                        <div class="price-row">
+                            <span class="price-label">Current Price:</span>
+                            <span class="price-value">${{ "%.2f"|format(item.current_price) }}</span>
+                        </div>
+                    {% else %}
+                        <div class="price-row">
+                            <span class="price-label">Current Price:</span>
+                            <span class="price-value error">N/A</span>
+                        </div>
+                    {% endif %}
+                </div>
+
+                {% if item.price_change is not none and item.percent_change is not none %}
+                    <div class="stock-change">
+                        <div class="change-amount {% if item.price_change >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ "↑" if item.price_change >= 0 else "↓" }}
+                            ${{ "%.2f"|format(item.price_change|abs) }}
+                            ({{ "%.2f"|format(item.percent_change) }}%)
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="stock-change">
+                        <div class="change-amount error">Unable to calculate change</div>
+                    </div>
+                {% endif %}
+
+                <div class="stock-actions">
+                    <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');">
+                        <button type="submit" class="btn btn-danger">Remove</button>
+                    </form>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No stocks tracked yet</h3>
+        <p>Start tracking your investments by adding a stock symbol and date.</p>
+        <a href="{{ url_for('main.add_stock') }}" class="btn btn-primary">Add Your First Stock</a>
+    </div>
+{% endif %}
+{% endblock %}

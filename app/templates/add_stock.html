@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Add Stock{% endblock %}
+
+{% block content %}
+<div class="form-header">
+    <h2>Add a New Stock</h2>
+    <p class="subtitle">Track the price change from a specific date to today</p>
+</div>
+
+<div class="form-container">
+    <form method="POST" class="add-stock-form">
+        <div class="form-group">
+            <label for="symbol">Stock Symbol:</label>
+            <input 
+                type="text" 
+                id="symbol" 
+                name="symbol" 
+                placeholder="e.g., AAPL, GOOGL, MSFT" 
+                required 
+                maxlength="10"
+                class="form-input"
+            >
+            <small>Enter the ticker symbol (case-insensitive)</small>
+        </div>
+
+        <div class="form-group">
+            <label for="date">Start Date:</label>
+            <input 
+                type="date" 
+                id="date" 
+                name="date" 
+                required 
+                class="form-input"
+            >
+            <small>The date you want to track the stock price from</small>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-large">Add Stock</button>
+            <a href="{{ url_for('main.index') }}" class="btn btn-secondary btn-large">Cancel</a>
+        </div>
+    </form>
+
+    <div class="info-box">
+        <h3>How it works:</h3>
+        <ul>
+            <li>Enter a valid stock symbol (e.g., AAPL for Apple)</li>
+            <li>Choose the date you want to start tracking from</li>
+            <li>The app will fetch the stock price on that date</li>
+            <li>You'll see the price change and percentage change up to today</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
