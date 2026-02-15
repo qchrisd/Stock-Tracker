@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Portfolio{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Your Portfolio</h2>
+    {% if portfolio %}
+        <p class="subtitle">Tracking {{ portfolio|length }} stock{{ 's' if portfolio|length != 1 else '' }}</p>
+    {% endif %}
+</div>
+
+{% if portfolio %}
+    <div class="portfolio-stats">
+        <div class="stat-card">
+            <h3>Total Stocks</h3>
+            <p class="stat-value">{{ portfolio|length }}</p>
+        </div>
+        {% if summary.total_initial_value > 0 %}
+            <div class="stat-card">
+                <h3>Initial Investment</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_current_value %}
+            <div class="stat-card">
+                <h3>Current Value</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
+            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Total Gain/Loss</h3>
+                <p class="stat-value">
+                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
+                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
+                </p>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="chart-container">
+        <h3>Portfolio Performance vs S&P 500</h3>
+        
+        <div class="chart-timeframe-buttons">
+            <button class="timeframe-btn" data-timeframe="1d">1D</button>
+            <button class="timeframe-btn" data-timeframe="5d">5D</button>
+            <button class="timeframe-btn" data-timeframe="30d">1M</button>
+            <button class="timeframe-btn" data-timeframe="6m">6M</button>
+            <button class="timeframe-btn" data-timeframe="1y">1Y</button>
+            <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
+            <button class="timeframe-btn active" data-timeframe="all">All</button>
+        </div>
+        
+        <div id="performanceChart" class="chart"></div>
+    </div>
+
+    <div class="stocks-table-container">
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Shares</th>
+                    <th>Date Aquired</th>
+                    <th>Acquired Price</th>
+                    <th>Price Today</th>
+                    <th>Acquired Market Value</th>
+                    <th>Market Value Today</th>
+                    <th>% Difference</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in portfolio %}
+                    <tr>
+                        <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                        <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                        <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                        <td>
+                            {% if item.current_price %}
+                                ${{ "%.2f"|format(item.current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                        <td>
+                            {% if item.current_value %}
+                                ${{ "{:,.2f}".format(item.current_value) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.value_change is not none and item.percent_change is not none %}
+                                <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if item.value_change >= 0 else "↓" }}
+                                    {{ "%.2f"|format(item.percent_change) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td class="action-cell">
+                            <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-small btn-secondary">Edit</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');" style="display: inline;">
+                                <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No stocks in your portfolio</h3>
+        <p>Start tracking your investments by adding a stock symbol and date.</p>
+        <a href="{{ url_for('main.add_stock', type='portfolio') }}" class="btn btn-primary">Add Your First Stock</a>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Only load chart if we have stocks
+    const chartDiv = document.getElementById('performanceChart');
+    if (!chartDiv || !chartDiv.offsetParent) return; // Chart container not visible
+    
+    let currentTimeFrame = '1d'; // Track current time frame
+    
+    // Function to load and render chart
+    function loadChart(timeFrame = 'all') {
+        currentTimeFrame = timeFrame;
+        
+        // Update button states
+        document.querySelectorAll('.timeframe-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.timeframe === timeFrame) {
+                btn.classList.add('active');
+            }
+        });
+        
+        const url = '{{ url_for("main.get_chart_data") }}' + '?time_frame=' + timeFrame;
+        
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    console.log('No chart data available yet');
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return;
+                
+                const traces = [];
+                const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+                let colorIndex = 0;
+                
+                // Add stock traces
+                if (data.stocks && Object.keys(data.stocks).length > 0) {
+                    for (const [symbol, stockData] of Object.entries(data.stocks)) {
+                        const dates = stockData.data.map(d => d.date);
+                        const percentChanges = stockData.data.map(d => d.percent_change);
+                        
+                        traces.push({
+                            x: dates,
+                            y: percentChanges,
+                            name: symbol,
+                            mode: 'lines',
+                            line: {
+                                color: colors[colorIndex % colors.length],
+                                width: 2
+                            },
+                            hovertemplate: '<b>' + symbol + '</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                        });
+                        colorIndex++;
+                    }
+                }
+                
+                // Add S&P 500 trace
+                if (data.sp500) {
+                    const dates = data.sp500.map(d => d.date);
+                    const percentChanges = data.sp500.map(d => d.percent_change);
+                    
+                    traces.push({
+                        x: dates,
+                        y: percentChanges,
+                        name: 'S&P 500',
+                        mode: 'lines',
+                        line: {
+                            color: '#34495e',
+                            width: 3,
+                            dash: 'dash'
+                        },
+                        hovertemplate: '<b>S&P 500</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                    });
+                }
+                
+                const layout = {
+                    title: 'Stock Performance Comparison (Percentage Return)',
+                    xaxis: {
+                        title: 'Date',
+                        type: 'date'
+                    },
+                    yaxis: {
+                        title: 'Return (%)',
+                        tickformat: '.1f'
+                    },
+                    hovermode: 'x unified',
+                    plot_bgcolor: '#f8f9fa',
+                    paper_bgcolor: 'white',
+                    font: {
+                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
+                        size: 12
+                    },
+                    margin: {
+                        t: 50,
+                        b: 50,
+                        l: 60,
+                        r: 40
+                    },
+                    responsive: true
+                };
+                
+                const config = {
+                    responsive: true,
+                    displayModeBar: true,
+                    displaylogo: false
+                };
+                
+                Plotly.newPlot('performanceChart', traces, layout, config);
+            })
+            .catch(error => console.error('Error loading chart data:', error));
+    }
+    
+    // Load initial chart with all time view
+    loadChart('all');
+    
+    // Attach event listeners to time frame buttons
+    document.querySelectorAll('.timeframe-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            loadChart(this.dataset.timeframe);
+        });
+    });
+});
+</script>
+{% endblock %}

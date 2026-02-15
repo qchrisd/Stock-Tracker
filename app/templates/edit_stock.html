@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Edit Stock{% endblock %}
+
+{% block content %}
+<div class="form-header">
+    <h2>Edit Stock: {{ stock.symbol }}</h2>
+    <p class="subtitle">Update the number of shares and date acquired</p>
+</div>
+
+<div class="form-container">
+    <form method="POST" class="add-stock-form">
+        <div class="form-group">
+            <label for="symbol">Stock Symbol:</label>
+            <input 
+                type="text" 
+                id="symbol" 
+                name="symbol" 
+                value="{{ stock.symbol }}"
+                disabled
+                class="form-input"
+            >
+            <small>Stock symbol cannot be changed</small>
+        </div>
+
+        <div class="form-group">
+            <label for="shares">Number of Shares:</label>
+            <input 
+                type="number" 
+                id="shares" 
+                name="shares" 
+                value="{{ "{:.2f}".format(stock.shares) if stock.shares % 1 != 0 else stock.shares|int }}"
+                step="0.01"
+                min="0.01"
+                required 
+                class="form-input"
+            >
+            <small>Update the number of shares you own (supports decimals)</small>
+        </div>
+
+        <div class="form-group">
+            <label for="date">Date Acquired:</label>
+            <input 
+                type="date" 
+                id="date" 
+                name="date" 
+                value="{{ stock.add_date.strftime('%Y-%m-%d') }}"
+                required 
+                class="form-input"
+            >
+            <small>Update the date you acquired this stock</small>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-large">Update Stock</button>
+            <a href="{{ url_for('main.index') }}" class="btn btn-secondary btn-large">Cancel</a>
+        </div>
+    </form>
+
+    <div class="info-box">
+        <h3>Current Stock Information:</h3>
+        <ul>
+            <li><strong>Symbol:</strong> {{ stock.symbol }}</li>
+            <li><strong>Current Shares:</strong> {{ "{:.2f}".format(stock.shares) if stock.shares % 1 != 0 else stock.shares|int }}</li>
+            <li><strong>Date Acquired:</strong> {{ stock.add_date.strftime('%Y-%m-%d') }}</li>
+            <li><strong>Acquired Price:</strong> ${{ "%.2f"|format(stock.initial_price) }}</li>
+            <li><strong>Initial Market Value:</strong> ${{ "{:,.2f}".format(stock.get_initial_value()) }}</li>
+        </ul>
+        <h3 style="margin-top: 20px;">What you can edit:</h3>
+        <ul>
+            <li>Update the number of shares</li>
+            <li>Change the date you acquired the stock</li>
+            <li>The stock symbol and original price cannot be changed</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

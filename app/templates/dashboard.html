@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Dashboard{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Dashboard</h2>
+    {% if dashboard %}
+        <p class="subtitle">Overview of {{ dashboard|length }} stock{{ 's' if dashboard|length != 1 else '' }} (Portfolio + Watchlist)</p>
+    {% endif %}
+</div>
+
+{% if dashboard %}
+    <div class="chart-container">
+        <h3>Portfolio Average Performance vs S&P 500</h3>
+        
+        <div class="chart-timeframe-buttons">
+            <button class="timeframe-btn" data-timeframe="1d">1D</button>
+            <button class="timeframe-btn" data-timeframe="5d">5D</button>
+            <button class="timeframe-btn" data-timeframe="30d">1M</button>
+            <button class="timeframe-btn" data-timeframe="6m">6M</button>
+            <button class="timeframe-btn" data-timeframe="1y">1Y</button>
+            <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
+            <button class="timeframe-btn active" data-timeframe="all">All</button>
+        </div>
+        
+        <div id="portfolioAverageChart" class="chart"></div>
+    </div>
+
+    <div class="stocks-table-container">
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Shares</th>
+                    <th>Date Aquired</th>
+                    <th>Acquired Price</th>
+                    <th>Price Today</th>
+                    <th>Acquired Market Value</th>
+                    <th>Market Value Today</th>
+                    <th>% Difference</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Portfolio Average Row -->
+                {% if summary.portfolio_avg_shares %}
+                    <tr class="average-row portfolio-average" data-toggle="portfolio">
+                        <td class="toggle-cell">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
+                        <td class="symbol-cell"><strong>Portfolio Avg</strong></td>
+                        <td>
+                            <span class="list-type-badge portfolio">
+                                Portfolio
+                            </span>
+                        </td>
+                        <td>{{ "{:.2f}".format(summary.portfolio_avg_shares) if summary.portfolio_avg_shares % 1 != 0 else summary.portfolio_avg_shares|int }}</td>
+                        <td>—</td>
+                        <td>${{ "%.2f"|format(summary.portfolio_avg_price) }}</td>
+                        <td>
+                            {% if summary.portfolio_avg_current_price %}
+                                ${{ "%.2f"|format(summary.portfolio_avg_current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>—</td>
+                        <td>
+                            {% if summary.portfolio_avg_percent is not none %}
+                                ${{ "%.2f"|format(summary.portfolio_avg_current_price - summary.portfolio_avg_price) if summary.portfolio_avg_current_price else "N/A" }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if summary.portfolio_avg_percent is not none %}
+                                <span class="percent-change {% if summary.portfolio_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.portfolio_avg_percent >= 0 else "↓" }}
+                                    {{ "%.2f"|format(summary.portfolio_avg_percent) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endif %}
+                
+                <!-- Portfolio Detail Rows (hidden by default) -->
+                {% for item in dashboard %}
+                    {% if not item.stock.is_watchlist %}
+                        <tr class="detail-row portfolio-detail" style="display: none;" data-parent="portfolio">
+                            <td></td>
+                            <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                            <td>
+                                <span class="list-type-badge {% if item.list_type == 'Portfolio' %}portfolio{% else %}watchlist{% endif %}">
+                                    {{ item.list_type }}
+                                </span>
+                            </td>
+                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                            <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                            <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                            <td>
+                                {% if item.current_price %}
+                                    ${{ "%.2f"|format(item.current_price) }}
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                            <td>
+                                {% if item.current_value %}
+                                    ${{ "{:,.2f}".format(item.current_value) }}
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.value_change is not none and item.percent_change is not none %}
+                                    <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                                        {{ "↑" if item.value_change >= 0 else "↓" }}
+                                        {{ "%.2f"|format(item.percent_change) }}%
+                                    </span>
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+                
+                <!-- Watchlist Average Row -->
+                {% if summary.watchlist_avg_shares %}
+                    <tr class="average-row watchlist-average" data-toggle="watchlist">
+                        <td class="toggle-cell">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
+                        <td class="symbol-cell"><strong>Watchlist Avg</strong></td>
+                        <td>
+                            <span class="list-type-badge watchlist">
+                                Watchlist
+                            </span>
+                        </td>
+                        <td>{{ "{:.2f}".format(summary.watchlist_avg_shares) if summary.watchlist_avg_shares % 1 != 0 else summary.watchlist_avg_shares|int }}</td>
+                        <td>—</td>
+                        <td>${{ "%.2f"|format(summary.watchlist_avg_price) }}</td>
+                        <td>
+                            {% if summary.watchlist_avg_current_price %}
+                                ${{ "%.2f"|format(summary.watchlist_avg_current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>—</td>
+                        <td>
+                            {% if summary.watchlist_avg_percent is not none %}
+                                ${{ "%.2f"|format(summary.watchlist_avg_current_price - summary.watchlist_avg_price) if summary.watchlist_avg_current_price else "N/A" }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if summary.watchlist_avg_percent is not none %}
+                                <span class="percent-change {% if summary.watchlist_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.watchlist_avg_percent >= 0 else "↓" }}
+                                    {{ "%.2f"|format(summary.watchlist_avg_percent) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endif %}
+                
+                <!-- Watchlist Detail Rows (hidden by default) -->
+                {% for item in dashboard %}
+                    {% if item.stock.is_watchlist %}
+                        <tr class="detail-row watchlist-detail" style="display: none;" data-parent="watchlist">
+                            <td></td>
+                            <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                            <td>
+                                <span class="list-type-badge {% if item.list_type == 'Portfolio' %}portfolio{% else %}watchlist{% endif %}">
+                                    {{ item.list_type }}
+                                </span>
+                            </td>
+                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                            <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                            <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                            <td>
+                                {% if item.current_price %}
+                                    ${{ "%.2f"|format(item.current_price) }}
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                            <td>
+                                {% if item.current_value %}
+                                    ${{ "{:,.2f}".format(item.current_value) }}
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.value_change is not none and item.percent_change is not none %}
+                                    <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                                        {{ "↑" if item.value_change >= 0 else "↓" }}
+                                        {{ "%.2f"|format(item.percent_change) }}%
+                                    </span>
+                                {% else %}
+                                    <span class="error">N/A</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No stocks tracked yet</h3>
+        <p>Add stocks to your portfolio or watchlist to see them here.</p>
+        <a href="{{ url_for('main.portfolio') }}" class="btn btn-primary">Go to Portfolio</a>
+    </div>
+{% endif %}
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle expand/collapse for average rows
+    const averageRows = document.querySelectorAll('.average-row');
+    
+    averageRows.forEach(row => {
+        row.style.cursor = 'pointer';
+        
+        row.addEventListener('click', function(e) {
+            // Prevent if clicking on non-toggle elements
+            if (e.target.closest('.toggle-cell')) {
+                toggleDetails(this);
+            } else if (!e.target.closest('a') && !e.target.closest('form')) {
+                toggleDetails(this);
+            }
+        });
+    });
+    
+    function toggleDetails(averageRow) {
+        const toggleId = averageRow.getAttribute('data-toggle');
+        const detailRows = document.querySelectorAll(`.detail-row[data-parent="${toggleId}"]`);
+        const toggleArrow = averageRow.querySelector('.toggle-arrow');
+        
+        // Toggle visibility
+        const isHidden = detailRows[0].style.display === 'none';
+        detailRows.forEach(row => {
+            row.style.display = isHidden ? 'table-row' : 'none';
+        });
+        
+        // Rotate arrow
+        if (toggleArrow) {
+            toggleArrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+        }
+        
+        // Toggle active class for styling
+        averageRow.classList.toggle('expanded', isHidden);
+    }
+
+    // Chart functionality for average performance
+    const chartDiv = document.getElementById('portfolioAverageChart');
+    if (chartDiv && chartDiv.offsetParent) {
+        let currentTimeFrame = '1d';
+        
+        function loadChart(timeFrame = 'all') {
+            currentTimeFrame = timeFrame;
+            
+            // Update button states
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.timeframe === timeFrame) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            const url = '{{ url_for("main.get_portfolio_average_chart_data") }}' + '?time_frame=' + timeFrame;
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to fetch chart data');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    
+                    renderChart(data);
+                })
+                .catch(error => console.error('Chart Error:', error));
+        }
+        
+        function renderChart(data) {
+            const traces = [];
+            
+            // Portfolio Average trace
+            if (data.portfolio_avg && data.portfolio_avg.length > 0) {
+                const dates = data.portfolio_avg.map(d => d.date);
+                const returns = data.portfolio_avg.map(d => d.return_pct);
+                
+                traces.push({
+                    x: dates,
+                    y: returns,
+                    name: 'Portfolio Avg',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: '#3498db',
+                        width: 3
+                    }
+                });
+            }
+            
+            // S&P 500 trace
+            if (data.sp500 && data.sp500.length > 0) {
+                const dates = data.sp500.map(d => d.date);
+                const returns = data.sp500.map(d => d.return_pct);
+                
+                traces.push({
+                    x: dates,
+                    y: returns,
+                    name: 'S&P 500',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: '#95a5a6',
+                        width: 2,
+                        dash: 'dash'
+                    }
+                });
+            }
+            
+            const layout = {
+                title: '',
+                xaxis: {
+                    title: 'Date'
+                },
+                yaxis: {
+                    title: 'Return (%)'
+                },
+                hovermode: 'x unified',
+                margin: { t: 20, b: 40, l: 60, r: 20 },
+                plot_bgcolor: '#f9f9f9',
+                paper_bgcolor: 'white'
+            };
+            
+            Plotly.newPlot(chartDiv, traces, layout, { responsive: true });
+        }
+        
+        // Add event listeners to time frame buttons
+        document.querySelectorAll('.timeframe-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                loadChart(this.dataset.timeframe);
+            });
+        });
+        
+        // Load initial chart
+        loadChart('all');
+    }
+});
+</script>
+{% endblock %}

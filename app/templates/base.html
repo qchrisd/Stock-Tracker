@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Stock Tracker{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="logo">📈 Stock Tracker</h1>
+            <nav class="navbar">
+                <a href="{{ url_for('main.dashboard') }}" class="nav-link">Dashboard</a>
+                <a href="{{ url_for('main.portfolio') }}" class="nav-link">Portfolio</a>
+                <a href="{{ url_for('main.watchlist') }}" class="nav-link">Watchlist</a>
+                <a href="{{ url_for('main.add_stock', type='portfolio') }}" class="nav-link btn-primary">+ Add Stock</a>
+            </nav>
+        </header>
+
+        <main>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                            <button class="alert-close" onclick="this.parentElement.style.display='none';">&times;</button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer>
+            <p>&copy; 2026 Stock Tracker. Track your stock investments easily.</p>
+        </footer>
+    </div>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>
