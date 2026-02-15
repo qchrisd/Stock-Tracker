@@ -11,33 +11,20 @@
 </div>
 
 {% if dashboard %}
-    <div class="portfolio-stats">
-        <div class="stat-card">
-            <h3>Total Stocks</h3>
-            <p class="stat-value">{{ dashboard|length }}</p>
+    <div class="chart-container">
+        <h3>Portfolio Average Performance vs S&P 500</h3>
+        
+        <div class="chart-timeframe-buttons">
+            <button class="timeframe-btn" data-timeframe="1d">1D</button>
+            <button class="timeframe-btn" data-timeframe="5d">5D</button>
+            <button class="timeframe-btn" data-timeframe="30d">1M</button>
+            <button class="timeframe-btn" data-timeframe="6m">6M</button>
+            <button class="timeframe-btn" data-timeframe="1y">1Y</button>
+            <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
+            <button class="timeframe-btn active" data-timeframe="all">All</button>
         </div>
-        {% if summary.total_initial_value > 0 %}
-            <div class="stat-card">
-                <h3>Total Initial Value</h3>
-                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
-            </div>
-        {% endif %}
-        {% if summary.total_current_value %}
-            <div class="stat-card">
-                <h3>Total Current Value</h3>
-                <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
-            </div>
-        {% endif %}
-        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
-            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
-                <h3>Total Gain/Loss</h3>
-                <p class="stat-value">
-                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
-                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
-                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
-                </p>
-            </div>
-        {% endif %}
+        
+        <div id="portfolioAverageChart" class="chart"></div>
     </div>
 
     <div class="stocks-table-container">
@@ -239,6 +226,7 @@
     </div>
 {% endif %}
 
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Handle expand/collapse for average rows
@@ -275,6 +263,108 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Toggle active class for styling
         averageRow.classList.toggle('expanded', isHidden);
+    }
+
+    // Chart functionality for average performance
+    const chartDiv = document.getElementById('portfolioAverageChart');
+    if (chartDiv && chartDiv.offsetParent) {
+        let currentTimeFrame = '1d';
+        
+        function loadChart(timeFrame = 'all') {
+            currentTimeFrame = timeFrame;
+            
+            // Update button states
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.timeframe === timeFrame) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            const url = '{{ url_for("main.get_portfolio_average_chart_data") }}' + '?time_frame=' + timeFrame;
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to fetch chart data');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    
+                    renderChart(data);
+                })
+                .catch(error => console.error('Chart Error:', error));
+        }
+        
+        function renderChart(data) {
+            const traces = [];
+            
+            // Portfolio Average trace
+            if (data.portfolio_avg && data.portfolio_avg.length > 0) {
+                const dates = data.portfolio_avg.map(d => d.date);
+                const returns = data.portfolio_avg.map(d => d.return_pct);
+                
+                traces.push({
+                    x: dates,
+                    y: returns,
+                    name: 'Portfolio Avg',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: '#3498db',
+                        width: 3
+                    }
+                });
+            }
+            
+            // S&P 500 trace
+            if (data.sp500 && data.sp500.length > 0) {
+                const dates = data.sp500.map(d => d.date);
+                const returns = data.sp500.map(d => d.return_pct);
+                
+                traces.push({
+                    x: dates,
+                    y: returns,
+                    name: 'S&P 500',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: '#95a5a6',
+                        width: 2,
+                        dash: 'dash'
+                    }
+                });
+            }
+            
+            const layout = {
+                title: '',
+                xaxis: {
+                    title: 'Date'
+                },
+                yaxis: {
+                    title: 'Return (%)'
+                },
+                hovermode: 'x unified',
+                margin: { t: 20, b: 40, l: 60, r: 20 },
+                plot_bgcolor: '#f9f9f9',
+                paper_bgcolor: 'white'
+            };
+            
+            Plotly.newPlot(chartDiv, traces, layout, { responsive: true });
+        }
+        
+        // Add event listeners to time frame buttons
+        document.querySelectorAll('.timeframe-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                loadChart(this.dataset.timeframe);
+            });
+        });
+        
+        // Load initial chart
+        loadChart('all');
     }
 });
 </script>

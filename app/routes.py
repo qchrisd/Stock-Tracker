@@ -424,3 +424,97 @@ def get_chart_data():
         return jsonify(chart_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/portfolio-average-chart-data')
+def get_portfolio_average_chart_data():
+    """API endpoint to get average portfolio performance data for charting"""
+    from datetime import datetime, timedelta, date
+    
+    stocks = Stock.query.filter_by(is_watchlist=False).all()
+    
+    if not stocks:
+        return jsonify({'error': 'No portfolio stocks tracked yet'}), 404
+    
+    # Get time frame parameter
+    time_frame = request.args.get('time_frame', 'all', type=str)
+    
+    # Calculate date range based on time frame
+    today = date.today()
+    earliest_date = min(stock.add_date for stock in stocks)
+    
+    if time_frame == '1d':
+        start_date = today - timedelta(days=1)
+    elif time_frame == '5d':
+        start_date = today - timedelta(days=5)
+    elif time_frame == '30d':
+        start_date = today - timedelta(days=30)
+    elif time_frame == '6m':
+        start_date = today - timedelta(days=180)
+    elif time_frame == '1y':
+        start_date = today - timedelta(days=365)
+    elif time_frame == 'ytd':
+        # Year to date: January 1 of current year
+        start_date = date(today.year, 1, 1)
+    else:  # 'all' or default
+        start_date = earliest_date
+    
+    # Don't go before earliest stock addition date
+    if start_date < earliest_date:
+        start_date = earliest_date
+    
+    try:
+        # Collect all historical data points with their share weights
+        all_dates = {}
+        total_initial_value_at_date = {}
+        
+        for stock in stocks:
+            hist_data = stock.get_historical_data()
+            if hist_data:
+                for data_point in hist_data:
+                    if data_point['date'] >= start_date.isoformat():
+                        date_key = data_point['date']
+                        if date_key not in all_dates:
+                            all_dates[date_key] = []
+                            total_initial_value_at_date[date_key] = 0
+                        
+                        # Store: initial return % and shares for weighted average
+                        all_dates[date_key].append({
+                            'percent_change': data_point['percent_change'],
+                            'initial_value': stock.get_initial_value()
+                        })
+                        total_initial_value_at_date[date_key] += stock.get_initial_value()
+        
+        # Calculate weighted average return for each date
+        avg_data = []
+        for date_key in sorted(all_dates.keys()):
+            data_points = all_dates[date_key]
+            total_initial = total_initial_value_at_date[date_key]
+            
+            if total_initial > 0:
+                weighted_avg = sum(d['percent_change'] * d['initial_value'] / total_initial for d in data_points)
+                avg_data.append({
+                    'date': date_key,
+                    'return_pct': weighted_avg
+                })
+        
+        # Fetch S&P 500 data for comparison
+        sp500_data = Stock.get_sp500_historical_data(start_date)
+        
+        # Convert sp500 data from percent_change to return_pct format
+        sp500_formatted = []
+        if sp500_data:
+            for point in sp500_data:
+                sp500_formatted.append({
+                    'date': point['date'],
+                    'return_pct': point['percent_change']
+                })
+        
+        chart_data = {
+            'portfolio_avg': avg_data,
+            'sp500': sp500_formatted
+        }
+        
+        return jsonify(chart_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
