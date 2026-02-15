@@ -151,3 +151,36 @@ def get_stock_data(symbol):
         return jsonify(stock.to_dict())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/chart-data')
+def get_chart_data():
+    """API endpoint to get historical data for charting"""
+    stocks = Stock.query.all()
+    
+    if not stocks:
+        return jsonify({'error': 'No stocks tracked yet'}), 404
+    
+    chart_data = {'stocks': {}, 'sp500': None}
+    
+    try:
+        # Get earliest add_date to use for S&P 500
+        earliest_date = min(stock.add_date for stock in stocks)
+        
+        # Fetch S&P 500 data
+        sp500_data = Stock.get_sp500_historical_data(earliest_date)
+        if sp500_data:
+            chart_data['sp500'] = sp500_data
+        
+        # Fetch historical data for each stock
+        for stock in stocks:
+            hist_data = stock.get_historical_data()
+            if hist_data:
+                chart_data['stocks'][stock.symbol] = {
+                    'name': stock.symbol,
+                    'data': hist_data
+                }
+        
+        return jsonify(chart_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

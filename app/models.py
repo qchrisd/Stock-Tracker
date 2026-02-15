@@ -59,6 +59,58 @@ class Stock(db.Model):
         percent_change = (value_change / initial_value) * 100
         return percent_change
 
+    def get_historical_data(self):
+        """Fetch historical price data from add_date to today"""
+        try:
+            ticker = yf.Ticker(self.symbol)
+            # Get data from add_date to today
+            hist = ticker.history(start=self.add_date)
+            if hist.empty:
+                return None
+            
+            # Calculate normalized percentage returns
+            normalized_data = []
+            initial_price = hist['Close'].iloc[0]
+            
+            for date, row in hist.iterrows():
+                percent_change = ((row['Close'] - initial_price) / initial_price) * 100
+                normalized_data.append({
+                    'date': date.strftime('%Y-%m-%d'),
+                    'price': float(row['Close']),
+                    'percent_change': percent_change
+                })
+            
+            return normalized_data
+        except Exception as e:
+            print(f"Error fetching historical data for {self.symbol}: {e}")
+            return None
+
+    @staticmethod
+    def get_sp500_historical_data(start_date):
+        """Fetch S&P 500 historical data from start_date to today"""
+        try:
+            ticker = yf.Ticker('^GSPC')
+            hist = ticker.history(start=start_date)
+            if hist.empty:
+                return None
+            
+            # Calculate normalized percentage returns
+            normalized_data = []
+            initial_price = hist['Close'].iloc[0]
+            
+            for date, row in hist.iterrows():
+                percent_change = ((row['Close'] - initial_price) / initial_price) * 100
+                normalized_data.append({
+                    'date': date.strftime('%Y-%m-%d'),
+                    'price': float(row['Close']),
+                    'percent_change': percent_change
+                })
+            
+            return normalized_data
+        except Exception as e:
+            print(f"Error fetching S&P 500 historical data: {e}")
+            return None
+
     def to_dict(self):
         """Convert stock object to dictionary"""
         current_price = self.get_current_price()

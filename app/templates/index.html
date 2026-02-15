@@ -40,6 +40,11 @@
         {% endif %}
     </div>
 
+    <div class="chart-container">
+        <h3>Portfolio Performance vs S&P 500</h3>
+        <div id="performanceChart" class="chart"></div>
+    </div>
+
     <div class="stocks-grid">
         {% for item in portfolio %}
             <div class="stock-card">
@@ -108,4 +113,106 @@
         <a href="{{ url_for('main.add_stock') }}" class="btn btn-primary">Add Your First Stock</a>
     </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Only load chart if we have stocks
+    const chartDiv = document.getElementById('performanceChart');
+    if (!chartDiv || !chartDiv.offsetParent) return; // Chart container not visible
+    
+    fetch('{{ url_for("main.get_chart_data") }}')
+        .then(response => {
+            if (!response.ok) {
+                console.log('No chart data available yet');
+                return null;
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return;
+            
+            const traces = [];
+            const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+            let colorIndex = 0;
+            
+            // Add stock traces
+            if (data.stocks && Object.keys(data.stocks).length > 0) {
+                for (const [symbol, stockData] of Object.entries(data.stocks)) {
+                    const dates = stockData.data.map(d => d.date);
+                    const percentChanges = stockData.data.map(d => d.percent_change);
+                    
+                    traces.push({
+                        x: dates,
+                        y: percentChanges,
+                        name: symbol,
+                        mode: 'lines',
+                        line: {
+                            color: colors[colorIndex % colors.length],
+                            width: 2
+                        },
+                        hovertemplate: '<b>' + symbol + '</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                    });
+                    colorIndex++;
+                }
+            }
+            
+            // Add S&P 500 trace
+            if (data.sp500) {
+                const dates = data.sp500.map(d => d.date);
+                const percentChanges = data.sp500.map(d => d.percent_change);
+                
+                traces.push({
+                    x: dates,
+                    y: percentChanges,
+                    name: 'S&P 500',
+                    mode: 'lines',
+                    line: {
+                        color: '#34495e',
+                        width: 3,
+                        dash: 'dash'
+                    },
+                    hovertemplate: '<b>S&P 500</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                });
+            }
+            
+            const layout = {
+                title: 'Stock Performance Comparison (Percentage Return)',
+                xaxis: {
+                    title: 'Date',
+                    type: 'date'
+                },
+                yaxis: {
+                    title: 'Return (%)',
+                    tickformat: '.1f'
+                },
+                hovermode: 'x unified',
+                plot_bgcolor: '#f8f9fa',
+                paper_bgcolor: 'white',
+                font: {
+                    family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
+                    size: 12
+                },
+                margin: {
+                    t: 50,
+                    b: 50,
+                    l: 60,
+                    r: 40
+                },
+                responsive: true
+            };
+            
+            const config = {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false
+            };
+            
+            Plotly.newPlot('performanceChart', traces, layout, config);
+        })
+        .catch(error => console.error('Error loading chart data:', error));
+});
+</script>
 {% endblock %}
