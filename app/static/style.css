@@ -377,6 +377,20 @@ main {
     display: inline;
 }
 
+.stocks-table .average-row {
+    background-color: #f0f0f0;
+    font-weight: 600;
+    border-top: 2px solid #bdc3c7;
+}
+
+.stocks-table .portfolio-average {
+    background-color: #f0f8f5;
+}
+
+.stocks-table .watchlist-average {
+    background-color: #fffbf0;
+}
+
 .stocks-table .error {
     color: #e74c3c;
 }

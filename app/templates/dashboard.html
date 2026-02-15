@@ -94,6 +94,84 @@
                         </td>
                     </tr>
                 {% endfor %}
+                <!-- Portfolio Average Row -->
+                {% if summary.portfolio_avg_shares %}
+                    <tr class="average-row portfolio-average">
+                        <td class="symbol-cell"><strong>Portfolio Avg</strong></td>
+                        <td>
+                            <span class="list-type-badge portfolio">
+                                Portfolio
+                            </span>
+                        </td>
+                        <td>{{ "{:.2f}".format(summary.portfolio_avg_shares) if summary.portfolio_avg_shares % 1 != 0 else summary.portfolio_avg_shares|int }}</td>
+                        <td>—</td>
+                        <td>${{ "%.2f"|format(summary.portfolio_avg_price) }}</td>
+                        <td>
+                            {% if summary.portfolio_avg_current_price %}
+                                ${{ "%.2f"|format(summary.portfolio_avg_current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>—</td>
+                        <td>
+                            {% if summary.portfolio_avg_percent is not none %}
+                                ${{ "%.2f"|format(summary.portfolio_avg_current_price - summary.portfolio_avg_price) if summary.portfolio_avg_current_price else "N/A" }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if summary.portfolio_avg_percent is not none %}
+                                <span class="percent-change {% if summary.portfolio_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.portfolio_avg_percent >= 0 else "↓" }}
+                                    {{ "%.2f"|format(summary.portfolio_avg_percent) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endif %}
+                <!-- Watchlist Average Row -->
+                {% if summary.watchlist_avg_shares %}
+                    <tr class="average-row watchlist-average">
+                        <td class="symbol-cell"><strong>Watchlist Avg</strong></td>
+                        <td>
+                            <span class="list-type-badge watchlist">
+                                Watchlist
+                            </span>
+                        </td>
+                        <td>{{ "{:.2f}".format(summary.watchlist_avg_shares) if summary.watchlist_avg_shares % 1 != 0 else summary.watchlist_avg_shares|int }}</td>
+                        <td>—</td>
+                        <td>${{ "%.2f"|format(summary.watchlist_avg_price) }}</td>
+                        <td>
+                            {% if summary.watchlist_avg_current_price %}
+                                ${{ "%.2f"|format(summary.watchlist_avg_current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>—</td>
+                        <td>
+                            {% if summary.watchlist_avg_percent is not none %}
+                                ${{ "%.2f"|format(summary.watchlist_avg_current_price - summary.watchlist_avg_price) if summary.watchlist_avg_current_price else "N/A" }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if summary.watchlist_avg_percent is not none %}
+                                <span class="percent-change {% if summary.watchlist_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.watchlist_avg_percent >= 0 else "↓" }}
+                                    {{ "%.2f"|format(summary.watchlist_avg_percent) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endif %}
             </tbody>
         </table>
     </div>

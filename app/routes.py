@@ -101,17 +101,62 @@ def dashboard():
     total_initial_value = 0
     total_current_value = 0
     
+    portfolio_items = [item for item in dashboard_data if not item['stock'].is_watchlist]
+    watchlist_items = [item for item in dashboard_data if item['stock'].is_watchlist]
+    
     for item in dashboard_data:
         initial_value = item['stock'].get_initial_value()
         total_initial_value += initial_value
         if item['current_value'] is not None:
             total_current_value += item['current_value']
 
+    # Calculate average performance for Portfolio
+    portfolio_avg_price = None
+    portfolio_avg_current_price = None
+    portfolio_avg_shares = None
+    portfolio_avg_percent = None
+    
+    if portfolio_items:
+        total_shares = sum(item['stock'].shares for item in portfolio_items)
+        total_initial_prices = sum(item['stock'].initial_price * item['stock'].shares for item in portfolio_items)
+        total_current_prices = sum(item['current_price'] * item['stock'].shares for item in portfolio_items if item['current_price'])
+        valid_percent_items = [item for item in portfolio_items if item['percent_change'] is not None]
+        
+        portfolio_avg_shares = total_shares / len(portfolio_items) if portfolio_items else 0
+        portfolio_avg_price = total_initial_prices / total_shares if total_shares > 0 else 0
+        portfolio_avg_current_price = total_current_prices / total_shares if total_shares > 0 and total_current_prices > 0 else None
+        portfolio_avg_percent = sum(item['percent_change'] for item in valid_percent_items) / len(valid_percent_items) if valid_percent_items else None
+    
+    # Calculate average performance for Watchlist
+    watchlist_avg_price = None
+    watchlist_avg_current_price = None
+    watchlist_avg_shares = None
+    watchlist_avg_percent = None
+    
+    if watchlist_items:
+        total_shares = sum(item['stock'].shares for item in watchlist_items)
+        total_initial_prices = sum(item['stock'].initial_price * item['stock'].shares for item in watchlist_items)
+        total_current_prices = sum(item['current_price'] * item['stock'].shares for item in watchlist_items if item['current_price'])
+        valid_percent_items = [item for item in watchlist_items if item['percent_change'] is not None]
+        
+        watchlist_avg_shares = total_shares / len(watchlist_items) if watchlist_items else 0
+        watchlist_avg_price = total_initial_prices / total_shares if total_shares > 0 else 0
+        watchlist_avg_current_price = total_current_prices / total_shares if total_shares > 0 and total_current_prices > 0 else None
+        watchlist_avg_percent = sum(item['percent_change'] for item in valid_percent_items) / len(valid_percent_items) if valid_percent_items else None
+
     dashboard_summary = {
         'total_initial_value': total_initial_value,
         'total_current_value': total_current_value if total_current_value > 0 else None,
         'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
-        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
+        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None,
+        'portfolio_avg_shares': portfolio_avg_shares,
+        'portfolio_avg_price': portfolio_avg_price,
+        'portfolio_avg_current_price': portfolio_avg_current_price,
+        'portfolio_avg_percent': portfolio_avg_percent,
+        'watchlist_avg_shares': watchlist_avg_shares,
+        'watchlist_avg_price': watchlist_avg_price,
+        'watchlist_avg_current_price': watchlist_avg_current_price,
+        'watchlist_avg_percent': watchlist_avg_percent
     }
 
     return render_template('dashboard.html', dashboard=dashboard_data, summary=dashboard_summary)
