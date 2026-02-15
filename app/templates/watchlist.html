@@ -3,14 +3,6 @@
 {% block title %}Stock Tracker - Watchlist{% endblock %}
 
 {% block content %}
-<div class="tabs-container">
-    <div class="tabs">
-        <a href="{{ url_for('main.portfolio') }}" class="tab">Portfolio</a>
-        <a href="{{ url_for('main.watchlist') }}" class="tab active">Watchlist</a>
-        <a href="{{ url_for('main.add_stock', type='watchlist') }}" class="tab btn-link">+ Add Stock</a>
-    </div>
-</div>
-
 <div class="portfolio-header">
     <h2>Your Watchlist</h2>
     {% if watchlist %}
