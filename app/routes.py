@@ -139,6 +139,79 @@ def delete_stock(stock_id):
     return redirect(url_for('main.index'))
 
 
+@main_bp.route('/stock/<int:stock_id>/edit', methods=['GET', 'POST'])
+def edit_stock(stock_id):
+    """Edit a tracked stock (shares and date acquired)"""
+    stock = Stock.query.get(stock_id)
+    
+    if not stock:
+        flash('Stock not found', 'error')
+        return redirect(url_for('main.index'))
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
+        
+        if not date_str or not shares_str:
+            flash('Please provide date and number of shares', 'error')
+            return redirect(url_for('main.edit_stock', stock_id=stock_id))
+        
+        try:
+            # Validate and parse shares
+            try:
+                shares = float(shares_str)
+                if shares <= 0:
+                    flash('Number of shares must be greater than 0', 'error')
+                    return redirect(url_for('main.edit_stock', stock_id=stock_id))
+            except ValueError:
+                flash('Invalid number of shares. Please enter a valid number', 'error')
+                return redirect(url_for('main.edit_stock', stock_id=stock_id))
+            
+            # Parse the date
+            add_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            # If date changed, fetch the new price for that date
+            initial_price = stock.initial_price
+            if add_date != stock.add_date:
+                try:
+                    import yfinance as yf
+                    ticker = yf.Ticker(stock.symbol)
+                    
+                    # Get historical data for the new date
+                    hist = ticker.history(start=add_date, end=add_date)
+                    
+                    if hist.empty:
+                        # Try to get the price from the next available trading day
+                        hist = ticker.history(start=add_date, period='5d')
+                        if hist.empty:
+                            flash(f'Could not find price data for {stock.symbol} on or after {add_date}', 'error')
+                            return redirect(url_for('main.edit_stock', stock_id=stock_id))
+                    
+                    initial_price = float(hist['Close'].iloc[0])
+                except Exception as e:
+                    flash(f'Error fetching price data: {str(e)}', 'error')
+                    return redirect(url_for('main.edit_stock', stock_id=stock_id))
+            
+            # Update the stock
+            stock.shares = shares
+            stock.add_date = add_date
+            stock.initial_price = initial_price
+            db.session.commit()
+            
+            flash(f'Successfully updated {stock.symbol} ({shares} shares, acquired {add_date})', 'success')
+            return redirect(url_for('main.index'))
+            
+        except ValueError:
+            flash('Invalid date format. Please use YYYY-MM-DD', 'error')
+            return redirect(url_for('main.edit_stock', stock_id=stock_id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error updating stock: {str(e)}', 'error')
+            return redirect(url_for('main.edit_stock', stock_id=stock_id))
+    
+    return render_template('edit_stock.html', stock=stock)
+
+
 @main_bp.route('/api/stock/<symbol>')
 def get_stock_data(symbol):
     """API endpoint to get real-time data for a stock"""
