@@ -334,6 +334,25 @@ main {
     color: #3498db;
 }
 
+.list-type-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.list-type-badge.portfolio {
+    background-color: #d5f4e6;
+    color: #27ae60;
+}
+
+.list-type-badge.watchlist {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
 .stocks-table .percent-change {
     font-weight: 600;
     padding: 4px 8px;

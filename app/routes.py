@@ -71,6 +71,52 @@ def watchlist():
     return render_template('watchlist.html', watchlist=watchlist_data)
 
 
+@main_bp.route('/dashboard')
+def dashboard():
+    """Display combined portfolio and watchlist with average gains/losses"""
+    all_stocks = Stock.query.all()
+    dashboard_data = []
+
+    for stock in all_stocks:
+        try:
+            current_price = stock.get_current_price()
+            current_value = stock.get_current_value()
+            value_change = stock.get_value_change()
+            percent_change = stock.get_value_change_percent()
+            
+            list_type = 'Watchlist' if stock.is_watchlist else 'Portfolio'
+            
+            dashboard_data.append({
+                'stock': stock,
+                'current_price': current_price,
+                'current_value': current_value,
+                'value_change': value_change,
+                'percent_change': percent_change,
+                'list_type': list_type
+            })
+        except Exception as e:
+            flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
+
+    # Calculate summary statistics
+    total_initial_value = 0
+    total_current_value = 0
+    
+    for item in dashboard_data:
+        initial_value = item['stock'].get_initial_value()
+        total_initial_value += initial_value
+        if item['current_value'] is not None:
+            total_current_value += item['current_value']
+
+    dashboard_summary = {
+        'total_initial_value': total_initial_value,
+        'total_current_value': total_current_value if total_current_value > 0 else None,
+        'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
+        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
+    }
+
+    return render_template('dashboard.html', dashboard=dashboard_data, summary=dashboard_summary)
+
+
 @main_bp.route('/add', methods=['GET', 'POST'])
 def add_stock():
     """Add a new stock to track"""

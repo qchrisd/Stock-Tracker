@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Dashboard{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Dashboard</h2>
+    {% if dashboard %}
+        <p class="subtitle">Overview of {{ dashboard|length }} stock{{ 's' if dashboard|length != 1 else '' }} (Portfolio + Watchlist)</p>
+    {% endif %}
+</div>
+
+{% if dashboard %}
+    <div class="portfolio-stats">
+        <div class="stat-card">
+            <h3>Total Stocks</h3>
+            <p class="stat-value">{{ dashboard|length }}</p>
+        </div>
+        {% if summary.total_initial_value > 0 %}
+            <div class="stat-card">
+                <h3>Total Initial Value</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_current_value %}
+            <div class="stat-card">
+                <h3>Total Current Value</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
+            </div>
+        {% endif %}
+        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
+            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Total Gain/Loss</h3>
+                <p class="stat-value">
+                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
+                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
+                </p>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="stocks-table-container">
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Shares</th>
+                    <th>Date Aquired</th>
+                    <th>Acquired Price</th>
+                    <th>Price Today</th>
+                    <th>Acquired Market Value</th>
+                    <th>Market Value Today</th>
+                    <th>% Difference</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in dashboard %}
+                    <tr>
+                        <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>
+                            <span class="list-type-badge {% if item.list_type == 'Portfolio' %}portfolio{% else %}watchlist{% endif %}">
+                                {{ item.list_type }}
+                            </span>
+                        </td>
+                        <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                        <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                        <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                        <td>
+                            {% if item.current_price %}
+                                ${{ "%.2f"|format(item.current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                        <td>
+                            {% if item.current_value %}
+                                ${{ "{:,.2f}".format(item.current_value) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.value_change is not none and item.percent_change is not none %}
+                                <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if item.value_change >= 0 else "↓" }}
+                                    {{ "%.2f"|format(item.percent_change) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No stocks tracked yet</h3>
+        <p>Add stocks to your portfolio or watchlist to see them here.</p>
+        <a href="{{ url_for('main.portfolio') }}" class="btn btn-primary">Go to Portfolio</a>
+    </div>
+{% endif %}
+{% endblock %}

@@ -11,6 +11,7 @@
         <header>
             <h1 class="logo">📈 Stock Tracker</h1>
             <nav class="navbar">
+                <a href="{{ url_for('main.dashboard') }}" class="nav-link">Dashboard</a>
                 <a href="{{ url_for('main.portfolio') }}" class="nav-link">Portfolio</a>
                 <a href="{{ url_for('main.watchlist') }}" class="nav-link">Watchlist</a>
                 <a href="{{ url_for('main.add_stock', type='portfolio') }}" class="nav-link btn-primary">+ Add Stock</a>
