@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Watchlist{% endblock %}
+
+{% block content %}
+<div class="tabs-container">
+    <div class="tabs">
+        <a href="{{ url_for('main.portfolio') }}" class="tab">Portfolio</a>
+        <a href="{{ url_for('main.watchlist') }}" class="tab active">Watchlist</a>
+        <a href="{{ url_for('main.add_stock', type='watchlist') }}" class="tab btn-link">+ Add Stock</a>
+    </div>
+</div>
+
+<div class="portfolio-header">
+    <h2>Your Watchlist</h2>
+    {% if watchlist %}
+        <p class="subtitle">Monitoring {{ watchlist|length }} stock{{ 's' if watchlist|length != 1 else '' }}</p>
+    {% endif %}
+</div>
+
+{% if watchlist %}
+    <div class="stocks-table-container">
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Shares</th>
+                    <th>Date Added</th>
+                    <th>Added Price</th>
+                    <th>Price Today</th>
+                    <th>Initial Market Value</th>
+                    <th>Current Market Value</th>
+                    <th>% Difference</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in watchlist %}
+                    <tr>
+                        <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                        <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
+                        <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
+                        <td>
+                            {% if item.current_price %}
+                                ${{ "%.2f"|format(item.current_price) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
+                        <td>
+                            {% if item.stock.get_current_value() %}
+                                ${{ "{:,.2f}".format(item.stock.get_current_value()) }}
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.stock.get_value_change() is not none and item.stock.get_value_change_percent() is not none %}
+                                <span class="percent-change {% if item.stock.get_value_change() >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if item.stock.get_value_change() >= 0 else "↓" }}
+                                    {{ "%.2f"|format(item.stock.get_value_change_percent()) }}%
+                                </span>
+                            {% else %}
+                                <span class="error">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td class="action-cell">
+                            <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-small btn-secondary">Edit</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');" style="display: inline;">
+                                <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>Your watchlist is empty</h3>
+        <p>Add stocks you're interested in monitoring to your watchlist.</p>
+        <a href="{{ url_for('main.add_stock', type='watchlist') }}" class="btn btn-primary">Add Your First Watchlist Stock</a>
+    </div>
+{% endif %}
+{% endblock %}

@@ -7,8 +7,14 @@ main_bp = Blueprint('main', __name__)
 
 @main_bp.route('/')
 def index():
-    """Display all tracked stocks and their value changes"""
-    stocks = Stock.query.all()
+    """Display portfolio (owned stocks)"""
+    return redirect(url_for('main.portfolio'))
+
+
+@main_bp.route('/portfolio')
+def portfolio():
+    """Display all portfolio stocks and their value changes"""
+    stocks = Stock.query.filter_by(is_watchlist=False).all()
     portfolio_data = []
     total_initial_value = 0
     total_current_value = 0
@@ -42,25 +48,49 @@ def index():
         'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
     }
 
-    return render_template('index.html', portfolio=portfolio_data, summary=portfolio_summary)
+    return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary)
+
+
+@main_bp.route('/watchlist')
+def watchlist():
+    """Display all watchlist stocks"""
+    stocks = Stock.query.filter_by(is_watchlist=True).all()
+    watchlist_data = []
+
+    for stock in stocks:
+        try:
+            current_price = stock.get_current_price()
+            
+            watchlist_data.append({
+                'stock': stock,
+                'current_price': current_price,
+            })
+        except Exception as e:
+            flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
+
+    return render_template('watchlist.html', watchlist=watchlist_data)
 
 
 @main_bp.route('/add', methods=['GET', 'POST'])
 def add_stock():
     """Add a new stock to track"""
+    list_type = request.args.get('type', 'portfolio')  # 'portfolio' or 'watchlist'
+    
     if request.method == 'POST':
         symbol = request.form.get('symbol', '').upper().strip()
         date_str = request.form.get('date')
         shares_str = request.form.get('shares', '').strip()
+        is_watchlist = request.form.get('list_type') == 'watchlist'
         
         if not symbol or not date_str or not shares_str:
             flash('Please provide symbol, date, and number of shares', 'error')
-            return redirect(url_for('main.add_stock'))
+            return redirect(url_for('main.add_stock', type=list_type))
 
-        # Check if stock already exists
-        if Stock.query.filter_by(symbol=symbol).first():
-            flash(f'Stock {symbol} is already being tracked', 'error')
-            return redirect(url_for('main.add_stock'))
+        # Check if stock already exists in the same list
+        if Stock.query.filter_by(symbol=symbol, is_watchlist=is_watchlist).first():
+            list_name = 'watchlist' if is_watchlist else 'portfolio'
+            flash(f'Stock {symbol} is already in your {list_name}', 'error')
+            return redirect(url_for('main.add_stock', type=list_type))
 
         try:
             # Validate and parse shares
@@ -68,10 +98,10 @@ def add_stock():
                 shares = float(shares_str)
                 if shares <= 0:
                     flash('Number of shares must be greater than 0', 'error')
-                    return redirect(url_for('main.add_stock'))
+                    return redirect(url_for('main.add_stock', type=list_type))
             except ValueError:
                 flash('Invalid number of shares. Please enter a valid number', 'error')
-                return redirect(url_for('main.add_stock'))
+                return redirect(url_for('main.add_stock', type=list_type))
 
             # Parse the date
             add_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -88,7 +118,7 @@ def add_stock():
                 hist = ticker.history(start=add_date, period='5d')
                 if hist.empty:
                     flash(f'Could not find price data for {symbol} on or after {add_date}', 'error')
-                    return redirect(url_for('main.add_stock'))
+                    return redirect(url_for('main.add_stock', type=list_type))
 
             initial_price = float(hist['Close'].iloc[0])
 
@@ -97,25 +127,32 @@ def add_stock():
                 symbol=symbol,
                 add_date=add_date,
                 shares=shares,
-                initial_price=initial_price
+                initial_price=initial_price,
+                is_watchlist=is_watchlist
             )
             
             db.session.add(new_stock)
             db.session.commit()
 
             total_value = shares * initial_price
-            flash(f'Successfully added {shares} shares of {symbol} at ${initial_price:.2f} (Total: ${total_value:,.2f}) on {add_date}', 'success')
-            return redirect(url_for('main.index'))
+            list_name = 'watchlist' if is_watchlist else 'portfolio'
+            flash(f'Successfully added {shares} shares of {symbol} to {list_name} at ${initial_price:.2f} (Total: ${total_value:,.2f}) on {add_date}', 'success')
+            
+            # Redirect based on which list was being edited
+            if is_watchlist:
+                return redirect(url_for('main.watchlist'))
+            else:
+                return redirect(url_for('main.portfolio'))
 
         except ValueError:
             flash('Invalid date format. Please use YYYY-MM-DD', 'error')
-            return redirect(url_for('main.add_stock'))
+            return redirect(url_for('main.add_stock', type=list_type))
         except Exception as e:
             db.session.rollback()
             flash(f'Error adding stock: {str(e)}', 'error')
-            return redirect(url_for('main.add_stock'))
+            return redirect(url_for('main.add_stock', type=list_type))
 
-    return render_template('add_stock.html')
+    return render_template('add_stock.html', list_type=list_type)
 
 
 @main_bp.route('/stock/<int:stock_id>/delete', methods=['POST'])
@@ -125,10 +162,11 @@ def delete_stock(stock_id):
     
     if not stock:
         flash('Stock not found', 'error')
-        return redirect(url_for('main.index'))
+        return redirect(url_for('main.portfolio'))
 
     try:
         symbol = stock.symbol
+        is_watchlist = stock.is_watchlist
         db.session.delete(stock)
         db.session.commit()
         flash(f'Successfully removed {symbol} from tracking', 'success')
@@ -136,7 +174,11 @@ def delete_stock(stock_id):
         db.session.rollback()
         flash(f'Error deleting stock: {str(e)}', 'error')
 
-    return redirect(url_for('main.index'))
+    # Redirect to the appropriate list
+    if is_watchlist:
+        return redirect(url_for('main.watchlist'))
+    else:
+        return redirect(url_for('main.portfolio'))
 
 
 @main_bp.route('/stock/<int:stock_id>/edit', methods=['GET', 'POST'])
@@ -146,7 +188,7 @@ def edit_stock(stock_id):
     
     if not stock:
         flash('Stock not found', 'error')
-        return redirect(url_for('main.index'))
+        return redirect(url_for('main.portfolio'))
     
     if request.method == 'POST':
         date_str = request.form.get('date')
@@ -199,7 +241,12 @@ def edit_stock(stock_id):
             db.session.commit()
             
             flash(f'Successfully updated {stock.symbol} ({shares} shares, acquired {add_date})', 'success')
-            return redirect(url_for('main.index'))
+            
+            # Redirect to appropriate list
+            if stock.is_watchlist:
+                return redirect(url_for('main.watchlist'))
+            else:
+                return redirect(url_for('main.portfolio'))
             
         except ValueError:
             flash('Invalid date format. Please use YYYY-MM-DD', 'error')
@@ -231,7 +278,7 @@ def get_chart_data():
     """API endpoint to get historical data for charting"""
     from datetime import datetime, timedelta, date
     
-    stocks = Stock.query.all()
+    stocks = Stock.query.filter_by(is_watchlist=False).all()
     
     if not stocks:
         return jsonify({'error': 'No stocks tracked yet'}), 404

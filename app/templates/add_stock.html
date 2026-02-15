@@ -11,6 +11,15 @@
 <div class="form-container">
     <form method="POST" class="add-stock-form">
         <div class="form-group">
+            <label for="list_type">Add to:</label>
+            <select id="list_type" name="list_type" class="form-input" required>
+                <option value="portfolio" {% if list_type == 'portfolio' %}selected{% endif %}>Portfolio</option>
+                <option value="watchlist" {% if list_type == 'watchlist' %}selected{% endif %}>Watchlist</option>
+            </select>
+            <small>Choose whether this is a stock you own (Portfolio) or just monitoring (Watchlist)</small>
+        </div>
+
+        <div class="form-group">
             <label for="symbol">Stock Symbol:</label>
             <input 
                 type="text" 
@@ -53,7 +62,7 @@
 
         <div class="form-actions">
             <button type="submit" class="btn btn-primary btn-large">Add Stock</button>
-            <a href="{{ url_for('main.index') }}" class="btn btn-secondary btn-large">Cancel</a>
+            <a href="{% if list_type == 'watchlist' %}{{ url_for('main.watchlist') }}{% else %}{{ url_for('main.portfolio') }}{% endif %}" class="btn btn-secondary btn-large">Cancel</a>
         </div>
     </form>
 
@@ -78,3 +87,4 @@
     </div>
 </div>
 {% endblock %}
+

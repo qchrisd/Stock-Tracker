@@ -8,11 +8,14 @@ db = SQLAlchemy()
 class Stock(db.Model):
     """Model for tracking stocks and their historical prices"""
     id = db.Column(db.Integer, primary_key=True)
-    symbol = db.Column(db.String(10), unique=True, nullable=False)
+    symbol = db.Column(db.String(10), nullable=False)
     add_date = db.Column(db.Date, nullable=False)
     shares = db.Column(db.Float, nullable=False)
     initial_price = db.Column(db.Float, nullable=False)
     date_added = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    is_watchlist = db.Column(db.Boolean, default=False, nullable=False)
+    
+    __table_args__ = (db.UniqueConstraint('symbol', 'is_watchlist', name='unique_symbol_type'),)
 
     def __repr__(self):
         return f'<Stock {self.symbol}>'
