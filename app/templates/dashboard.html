@@ -72,7 +72,7 @@
                         </td>
                         <td>
                             {% if summary.portfolio_percent_change is not none %}
-                                <span class="{% if summary.portfolio_percent_change >= 0 %}positive{% else %}negative{% endif %}">
+                                <span class="percent-change {% if summary.portfolio_percent_change >= 0 %}positive{% else %}negative{% endif %}">
                                     {{ "↑" if summary.portfolio_percent_change >= 0 else "↓" }}
                                     {{ "%.2f"|format(summary.portfolio_percent_change) }}%
                                 </span>

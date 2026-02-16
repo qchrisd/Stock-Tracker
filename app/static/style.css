@@ -369,6 +369,14 @@ main {
     background-color: #fadbd8;
 }
 
+.positive {
+    color: #27ae60;
+}
+
+.negative {
+    color: #e74c3c;
+}
+
 .stocks-table .action-cell {
     text-align: center;
 }
