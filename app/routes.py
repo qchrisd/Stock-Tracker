@@ -52,6 +52,7 @@ def portfolio():
     total_realized_gains = 0
     total_dividends = 0
     total_sale_proceeds = 0
+    total_current_cost_basis = 0
     
     # Calculate from all transactions
     all_transactions = Transaction.query.filter_by(is_watchlist=False).all()
@@ -59,6 +60,10 @@ def portfolio():
         total_realized_gains += stock.get_realized_gains_from_transactions()
         total_dividends += stock.get_dividends_received()
         total_sale_proceeds += stock.get_proceeds_from_sales()
+        total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
+
+    # Unrealized gains = current value of holdings - cost basis of currently held shares
+    unrealized_gains = total_current_value - total_current_cost_basis if total_current_value is not None else None
 
     portfolio_summary = {
         'total_initial_value': total_initial_value,
@@ -70,7 +75,7 @@ def portfolio():
         'total_dividends': total_dividends,
         'total_sale_proceeds': total_sale_proceeds,
         'total_invested': total_initial_value,
-        'unrealized_gains': total_current_value - total_initial_value if total_current_value is not None else None
+        'unrealized_gains': unrealized_gains
     }
 
     return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary, account=account)
@@ -525,7 +530,13 @@ def record_dividend(symbol):
                     db.session.rollback()
                     return redirect(url_for('main.record_dividend', symbol=symbol))
                 
-                price_per_share = float(price_str)
+                try:
+                    price_per_share = float(price_str)
+                except ValueError:
+                    flash('Invalid price format', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
                 if price_per_share <= 0:
                     flash('Reinvestment price must be greater than 0', 'error')
                     db.session.rollback()
@@ -944,3 +955,33 @@ def edit_transaction(txn_id):
                 return redirect(url_for('main.edit_transaction', txn_id=txn_id))
     
     return render_template('edit_transaction.html', transaction=transaction)
+
+
+@main_bp.route('/api/stock-price/<symbol>')
+def get_stock_price(symbol):
+    """API endpoint to fetch stock price for a given date"""
+    symbol = symbol.upper().strip()
+    date_str = request.args.get('date')
+    
+    if not date_str:
+        return jsonify({'error': 'Date parameter required'}), 400
+    
+    try:
+        import yfinance as yf
+        price_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=price_date, end=price_date)
+        
+        if hist.empty:
+            # Try to get the price from the next available trading day
+            hist = ticker.history(start=price_date, period='5d')
+            if hist.empty:
+                return jsonify({'error': f'No price data available for {symbol} on or after {price_date}'}), 404
+        
+        price = float(hist['Close'].iloc[0])
+        return jsonify({'price': price})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

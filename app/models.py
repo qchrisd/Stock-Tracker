@@ -107,6 +107,25 @@ class Stock(db.Model):
         
         return realized_gains
     
+    def get_current_cost_basis_from_transactions(self):
+        """Calculate cost basis only for currently held shares (FIFO method)"""
+        transactions = self.get_transactions()
+        total_shares_purchased = 0
+        total_cost_of_purchases = 0
+        
+        for txn in transactions:
+            if txn.type in ('purchase', 'reinvestment'):
+                total_shares_purchased += txn.shares
+                total_cost_of_purchases += txn.shares * txn.price_per_share
+            elif txn.type == 'sale':
+                # Reduce shares and cost basis for next calculation (FIFO)
+                if total_shares_purchased > 0:
+                    avg_cost = total_cost_of_purchases / total_shares_purchased
+                    total_shares_purchased -= txn.shares
+                    total_cost_of_purchases -= txn.shares * avg_cost
+        
+        return total_cost_of_purchases
+    
     def get_dividends_received(self):
         """Calculate total dividends received"""
         transactions = self.get_transactions()
