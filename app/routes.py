@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
-from app.models import db, Stock
+from app.models import db, Stock, Transaction
 
 main_bp = Blueprint('main', __name__)
 
@@ -222,7 +222,18 @@ def add_stock():
                 is_watchlist=is_watchlist
             )
             
+            # Create corresponding transaction record
+            purchase_transaction = Transaction(
+                symbol=symbol,
+                type='purchase',
+                date=add_date,
+                shares=shares,
+                price_per_share=initial_price,
+                is_watchlist=is_watchlist
+            )
+            
             db.session.add(new_stock)
+            db.session.add(purchase_transaction)
             db.session.commit()
 
             total_value = shares * initial_price
@@ -244,6 +255,160 @@ def add_stock():
             return redirect(url_for('main.add_stock', type=list_type))
 
     return render_template('add_stock.html', list_type=list_type)
+
+
+@main_bp.route('/stock/<symbol>/sale', methods=['GET', 'POST'])
+def record_sale(symbol):
+    """Record a stock sale transaction"""
+    symbol = symbol.upper().strip()
+    stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    
+    if not stock:
+        flash(f'Stock {symbol} not found in portfolio', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    current_shares = stock.get_current_shares_from_transactions()
+    sale_price = None
+    sale_date_str = None
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
+        
+        if not date_str or not shares_str:
+            flash('Please provide date and shares', 'error')
+            return redirect(url_for('main.record_sale', symbol=symbol))
+        
+        try:
+            shares = float(shares_str)
+            sale_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if shares <= 0:
+                flash('Shares must be greater than 0', 'error')
+                return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            if shares > current_shares:
+                flash(f'Cannot sell {shares} shares. You only have {current_shares} shares', 'error')
+                return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            # Fetch the stock price on the sale date
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            
+            # Get historical data for the sale date
+            hist = ticker.history(start=sale_date, end=sale_date)
+            
+            if hist.empty:
+                # Try to get the price from the next available trading day
+                hist = ticker.history(start=sale_date, period='5d')
+                if hist.empty:
+                    flash(f'Could not find price data for {symbol} on or after {sale_date}', 'error')
+                    return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            price_per_share = float(hist['Close'].iloc[0])
+            
+            # Create sale transaction
+            sale_transaction = Transaction(
+                symbol=symbol,
+                type='sale',
+                date=sale_date,
+                shares=shares,
+                price_per_share=price_per_share,
+                is_watchlist=False
+            )
+            
+            db.session.add(sale_transaction)
+            db.session.commit()
+            
+            total_proceeds = shares * price_per_share
+            flash(f'Successfully recorded sale of {shares} shares of {symbol} at ${price_per_share:.2f} (Total: ${total_proceeds:,.2f})', 'success')
+            return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_sale', symbol=symbol))
+    
+    return render_template('record_sale.html', symbol=symbol, current_shares=current_shares, sale_price=sale_price, sale_date_str=sale_date_str)
+
+
+@main_bp.route('/stock/<symbol>/dividend', methods=['GET', 'POST'])
+def record_dividend(symbol):
+    """Record a dividend payment"""
+    symbol = symbol.upper().strip()
+    stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    
+    if not stock:
+        flash(f'Stock {symbol} not found in portfolio', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        amount_str = request.form.get('amount', '').strip()
+        reinvest = request.form.get('reinvest') == 'on'
+        
+        if not date_str or not amount_str:
+            flash('Please provide date and dividend amount', 'error')
+            return redirect(url_for('main.record_dividend', symbol=symbol))
+        
+        try:
+            amount = float(amount_str)
+            dividend_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if amount <= 0:
+                flash('Dividend amount must be greater than 0', 'error')
+                return redirect(url_for('main.record_dividend', symbol=symbol))
+            
+            # Create dividend transaction
+            dividend_transaction = Transaction(
+                symbol=symbol,
+                type='dividend',
+                date=dividend_date,
+                amount=amount,
+                is_watchlist=False
+            )
+            
+            db.session.add(dividend_transaction)
+            
+            # If reinvesting, create reinvestment transaction
+            if reinvest:
+                price_str = request.form.get('reinvest_price', '').strip()
+                if not price_str:
+                    flash('Please provide price per share for reinvestment', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
+                price_per_share = float(price_str)
+                if price_per_share <= 0:
+                    flash('Reinvestment price must be greater than 0', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
+                reinvestment_shares = amount / price_per_share
+                
+                reinvestment_transaction = Transaction(
+                    symbol=symbol,
+                    type='reinvestment',
+                    date=dividend_date,
+                    shares=reinvestment_shares,
+                    price_per_share=price_per_share,
+                    is_watchlist=False
+                )
+                
+                db.session.add(reinvestment_transaction)
+                db.session.commit()
+                flash(f'Recorded dividend of ${amount:.2f} and reinvested {reinvestment_shares:.4f} shares at ${price_per_share:.2f}', 'success')
+            else:
+                db.session.commit()
+                flash(f'Recorded dividend of ${amount:.2f}', 'success')
+            
+            return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            db.session.rollback()
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_dividend', symbol=symbol))
+    
+    return render_template('record_dividend.html', symbol=symbol)
 
 
 @main_bp.route('/stock/<int:stock_id>/delete', methods=['POST'])
@@ -518,3 +683,116 @@ def get_portfolio_average_chart_data():
         return jsonify(chart_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/transactions')
+def transactions():
+    """Display all transactions"""
+    all_transactions = Transaction.query.order_by(Transaction.date.desc()).all()
+    
+    # Group transactions by symbol for easy viewing
+    transactions_data = []
+    for txn in all_transactions:
+        transactions_data.append({
+            'transaction': txn,
+            'stock_symbol': txn.symbol,
+            'type_display': txn.type.capitalize(),
+            'list_type': 'Watchlist' if txn.is_watchlist else 'Portfolio'
+        })
+    
+    return render_template('transactions.html', transactions=transactions_data)
+
+
+@main_bp.route('/transaction/<int:txn_id>/delete', methods=['POST'])
+def delete_transaction(txn_id):
+    """Delete a transaction"""
+    transaction = Transaction.query.get(txn_id)
+    
+    if not transaction:
+        flash('Transaction not found', 'error')
+        return redirect(url_for('main.transactions'))
+    
+    symbol = transaction.symbol
+    txn_type = transaction.type
+    
+    try:
+        db.session.delete(transaction)
+        db.session.commit()
+        flash(f'Successfully deleted {txn_type} transaction for {symbol}', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting transaction: {str(e)}', 'error')
+    
+    return redirect(url_for('main.transactions'))
+
+
+@main_bp.route('/transaction/<int:txn_id>/edit', methods=['GET', 'POST'])
+def edit_transaction(txn_id):
+    """Edit a transaction"""
+    transaction = Transaction.query.get(txn_id)
+    
+    if not transaction:
+        flash('Transaction not found', 'error')
+        return redirect(url_for('main.transactions'))
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        
+        # For purchases, sales, and reinvestments: edit shares and price
+        if transaction.type in ('purchase', 'sale', 'reinvestment'):
+            shares_str = request.form.get('shares', '').strip()
+            price_str = request.form.get('price', '').strip()
+            
+            if not date_str or not shares_str or not price_str:
+                flash('Please provide date, shares, and price', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+            
+            try:
+                shares = float(shares_str)
+                price = float(price_str)
+                txn_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                
+                if shares <= 0 or price <= 0:
+                    flash('Shares and price must be greater than 0', 'error')
+                    return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+                
+                transaction.date = txn_date
+                transaction.shares = shares
+                transaction.price_per_share = price
+                db.session.commit()
+                
+                flash(f'Successfully updated {transaction.type} transaction for {transaction.symbol}', 'success')
+                return redirect(url_for('main.transactions'))
+                
+            except ValueError as e:
+                flash(f'Invalid input: {str(e)}', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+        
+        # For dividends: edit amount
+        elif transaction.type == 'dividend':
+            amount_str = request.form.get('amount', '').strip()
+            
+            if not date_str or not amount_str:
+                flash('Please provide date and amount', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+            
+            try:
+                amount = float(amount_str)
+                txn_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                
+                if amount <= 0:
+                    flash('Amount must be greater than 0', 'error')
+                    return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+                
+                transaction.date = txn_date
+                transaction.amount = amount
+                db.session.commit()
+                
+                flash(f'Successfully updated dividend transaction for {transaction.symbol}', 'success')
+                return redirect(url_for('main.transactions'))
+                
+            except ValueError as e:
+                flash(f'Invalid input: {str(e)}', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+    
+    return render_template('edit_transaction.html', transaction=transaction)

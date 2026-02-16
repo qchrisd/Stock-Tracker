@@ -98,7 +98,7 @@
                                     {{ item.list_type }}
                                 </span>
                             </td>
-                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                            <td>{{ "{:.4f}".format(item.stock.get_current_shares_from_transactions()) if item.stock.get_current_shares_from_transactions() % 1 != 0 else item.stock.get_current_shares_from_transactions()|int }}</td>
                             <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
                             <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
                             <td>
@@ -184,7 +184,7 @@
                                     {{ item.list_type }}
                                 </span>
                             </td>
-                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                            <td>{{ "{:.4f}".format(item.stock.get_current_shares_from_transactions()) if item.stock.get_current_shares_from_transactions() % 1 != 0 else item.stock.get_current_shares_from_transactions()|int }}</td>
                             <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
                             <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
                             <td>

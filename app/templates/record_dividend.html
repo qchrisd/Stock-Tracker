@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Record Dividend{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Record Dividend - {{ symbol }}</h2>
+    <p class="subtitle">Record dividend payments and optional reinvestments</p>
+</div>
+
+<div class="form-container">
+    <form method="POST" class="stock-form">
+        <fieldset>
+            <legend>Dividend Details</legend>
+            
+            <div class="form-group">
+                <label for="date">Dividend Date *</label>
+                <input type="date" id="date" name="date" required>
+                <small>The date you received the dividend</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="amount">Total Dividend Amount ($) *</label>
+                <input type="number" id="amount" name="amount" step="0.01" min="0" placeholder="e.g., 50.00" required>
+                <small>Total dividend amount received</small>
+            </div>
+            
+            <div class="form-group checkbox">
+                <input type="checkbox" id="reinvest" name="reinvest">
+                <label for="reinvest">Reinvest dividend</label>
+                <small>Check if you reinvested this dividend into more shares</small>
+            </div>
+            
+            <div id="reinvestment-section" style="display:none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+                <h3>Reinvestment Details</h3>
+                
+                <div class="form-group">
+                    <label for="reinvest_price">Price per Share at Reinvestment ($) *</label>
+                    <input type="number" id="reinvest_price" name="reinvest_price" step="0.01" min="0" placeholder="e.g., 125.50">
+                    <small>Price per share when reinvesting</small>
+                </div>
+                
+                <div class="form-group">
+                    <p id="reinvest-calc" style="color: #666; font-size: 14px;"></p>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary">Record Dividend</button>
+                <a href="{{ url_for('main.portfolio') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </fieldset>
+    </form>
+</div>
+
+<script>
+const reinvestCheckbox = document.getElementById('reinvest');
+const reinvestmentSection = document.getElementById('reinvestment-section');
+const amountInput = document.getElementById('amount');
+const priceInput = document.getElementById('reinvest_price');
+const calcDisplay = document.getElementById('reinvest-calc');
+
+reinvestCheckbox.addEventListener('change', function() {
+    reinvestmentSection.style.display = this.checked ? 'block' : 'none';
+    if (this.checked) {
+        priceInput.required = true;
+    } else {
+        priceInput.required = false;
+    }
+    updateCalculation();
+});
+
+const updateCalculation = () => {
+    const amount = parseFloat(amountInput.value) || 0;
+    const price = parseFloat(priceInput.value) || 0;
+    
+    if (amount > 0 && price > 0) {
+        const shares = (amount / price).toFixed(4);
+        calcDisplay.innerHTML = `<strong>Shares purchased:</strong> ${shares} shares`;
+    } else {
+        calcDisplay.innerHTML = '';
+    }
+};
+
+amountInput.addEventListener('input', updateCalculation);
+priceInput.addEventListener('input', updateCalculation);
+</script>
+
+<style>
+.form-container {
+    max-width: 500px;
+    margin: 30px auto;
+    padding: 20px;
+}
+
+.stock-form {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.form-group input[type="number"]:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+}
+
+.form-group.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.form-group.checkbox input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+    font-size: 12px;
+}
+
+fieldset {
+    border: none;
+    padding: 0;
+}
+
+legend {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #333;
+}
+
+h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 15px;
+}
+</style>
+{% endblock %}

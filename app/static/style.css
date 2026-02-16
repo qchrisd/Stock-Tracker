@@ -459,6 +459,24 @@ main {
     background: #7f8c8d;
 }
 
+.btn-success {
+    background: #27ae60;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #229954;
+}
+
+.btn-info {
+    background: #3498db;
+    color: white;
+}
+
+.btn-info:hover {
+    background: #2980b9;
+}
+
 .btn-danger {
     background: #e74c3c;
     color: white;
