@@ -58,7 +58,7 @@ def portfolio():
     all_transactions = Transaction.query.filter_by(is_watchlist=False).all()
     for stock in stocks:
         total_realized_gains += stock.get_realized_gains_from_transactions()
-        total_dividends += stock.get_dividends_received()
+        total_dividends += stock.get_unreinvested_dividends()
         total_sale_proceeds += stock.get_proceeds_from_sales()
         total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
 

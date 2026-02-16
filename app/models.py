@@ -134,6 +134,27 @@ class Stock(db.Model):
             if txn.type == 'dividend':
                 total_dividends += txn.amount
         return total_dividends
+    
+    def get_unreinvested_dividends(self):
+        """Calculate dividends received that were NOT reinvested (received as cash)"""
+        transactions = self.get_transactions()
+        total_unreinvested = 0
+        
+        for txn in transactions:
+            if txn.type == 'dividend':
+                # Check if there's a corresponding reinvestment transaction on the same date
+                reinvestment = Transaction.query.filter_by(
+                    symbol=self.symbol,
+                    type='reinvestment',
+                    date=txn.date,
+                    is_watchlist=self.is_watchlist
+                ).first()
+                
+                # Only count this dividend if it wasn't reinvested
+                if not reinvestment:
+                    total_unreinvested += txn.amount
+        
+        return total_unreinvested
 
     def get_current_price(self):
         """Fetch the current price of the stock from yfinance"""
