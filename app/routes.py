@@ -331,6 +331,86 @@ def record_sale(symbol):
     return render_template('record_sale.html', symbol=symbol, current_shares=current_shares, sale_price=sale_price, sale_date_str=sale_date_str)
 
 
+@main_bp.route('/stock/<symbol>/buy', methods=['GET', 'POST'])
+def record_purchase(symbol):
+    """Record a stock purchase transaction for an existing stock"""
+    symbol = symbol.upper().strip()
+    
+    # Check if this is in portfolio or watchlist
+    portfolio_stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    watchlist_stock = Stock.query.filter_by(symbol=symbol, is_watchlist=True).first()
+    
+    stock = portfolio_stock or watchlist_stock
+    
+    if not stock:
+        flash(f'Stock {symbol} not found', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    list_type = 'watchlist' if stock.is_watchlist else 'portfolio'
+    current_shares = stock.get_current_shares_from_transactions()
+    purchase_price = None
+    purchase_date_str = None
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
+        
+        if not date_str or not shares_str:
+            flash('Please provide date and shares', 'error')
+            return redirect(url_for('main.record_purchase', symbol=symbol))
+        
+        try:
+            shares = float(shares_str)
+            purchase_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if shares <= 0:
+                flash('Shares must be greater than 0', 'error')
+                return redirect(url_for('main.record_purchase', symbol=symbol))
+            
+            # Fetch the stock price on the purchase date
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            
+            # Get historical data for the purchase date
+            hist = ticker.history(start=purchase_date, end=purchase_date)
+            
+            if hist.empty:
+                # Try to get the price from the next available trading day
+                hist = ticker.history(start=purchase_date, period='5d')
+                if hist.empty:
+                    flash(f'Could not find price data for {symbol} on or after {purchase_date}', 'error')
+                    return redirect(url_for('main.record_purchase', symbol=symbol))
+            
+            price_per_share = float(hist['Close'].iloc[0])
+            
+            # Create purchase transaction
+            purchase_transaction = Transaction(
+                symbol=symbol,
+                type='purchase',
+                date=purchase_date,
+                shares=shares,
+                price_per_share=price_per_share,
+                is_watchlist=stock.is_watchlist
+            )
+            
+            db.session.add(purchase_transaction)
+            db.session.commit()
+            
+            total_cost = shares * price_per_share
+            flash(f'Successfully recorded purchase of {shares} shares of {symbol} at ${price_per_share:.2f} (Total: ${total_cost:,.2f})', 'success')
+            
+            if stock.is_watchlist:
+                return redirect(url_for('main.watchlist'))
+            else:
+                return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_purchase', symbol=symbol))
+    
+    return render_template('record_purchase.html', symbol=symbol, current_shares=current_shares, list_type=list_type, purchase_price=purchase_price, purchase_date_str=purchase_date_str)
+
+
 @main_bp.route('/stock/<symbol>/dividend', methods=['GET', 'POST'])
 def record_dividend(symbol):
     """Record a dividend payment"""
