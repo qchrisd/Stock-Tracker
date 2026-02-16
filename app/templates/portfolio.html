@@ -125,21 +125,26 @@
                             {% endif %}
                         </td>
                         <td class="action-cell">
-                            <form method="GET" action="{{ url_for('main.record_purchase', symbol=item.stock.symbol) }}" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-primary">Buy</button>
-                            </form>
-                            <form method="GET" action="{{ url_for('main.record_sale', symbol=item.stock.symbol) }}" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-success">Sell</button>
-                            </form>
-                            <form method="GET" action="{{ url_for('main.record_dividend', symbol=item.stock.symbol) }}" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-info">Dividend</button>
-                            </form>
-                            <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-secondary">Edit</button>
-                            </form>
-                            <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-danger">Remove</button>
-                            </form>
+                            <div class="action-dropdown">
+                                <button type="button" class="btn btn-small btn-secondary action-toggle" data-stock-id="{{ item.stock.id }}">Actions</button>
+                                <div class="action-menu" id="actions-{{ item.stock.id }}" style="display: none;">
+                                    <form method="GET" action="{{ url_for('main.record_purchase', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-primary btn-block">Buy</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.record_sale', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-success btn-block">Sell</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.record_dividend', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-info btn-block">Dividend</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}">
+                                        <button type="submit" class="btn btn-small btn-secondary btn-block">Edit</button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');">
+                                        <button type="submit" class="btn btn-small btn-danger btn-block">Remove</button>
+                                    </form>
+                                </div>
+                            </div>
                         </td>
                     </tr>
 
@@ -303,6 +308,34 @@
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Handle action menu toggles
+    const actionToggles = document.querySelectorAll('.action-toggle');
+    
+    actionToggles.forEach(toggle => {
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const stockId = this.getAttribute('data-stock-id');
+            const menu = document.getElementById(`actions-${stockId}`);
+            
+            // Close other open menus
+            document.querySelectorAll('.action-menu').forEach(m => {
+                if (m.id !== `actions-${stockId}`) {
+                    m.style.display = 'none';
+                }
+            });
+            
+            // Toggle current menu
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+    });
+    
+    // Close action menu when clicking elsewhere
+    document.addEventListener('click', function() {
+        document.querySelectorAll('.action-menu').forEach(menu => {
+            menu.style.display = 'none';
+        });
+    });
+    
     // Handle expand/collapse for stock rows
     const stockRows = document.querySelectorAll('.stock-row');
     
