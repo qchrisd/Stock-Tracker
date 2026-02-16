@@ -26,12 +26,16 @@ def portfolio():
             value_change = stock.get_value_change()
             percent_change = stock.get_value_change_percent()
             
+            # Get transactions for this stock
+            transactions = Transaction.query.filter_by(symbol=stock.symbol, is_watchlist=False).order_by(Transaction.date).all()
+            
             portfolio_data.append({
                 'stock': stock,
                 'current_price': current_price,
                 'current_value': current_value,
                 'value_change': value_change,
-                'percent_change': percent_change
+                'percent_change': percent_change,
+                'transactions': transactions
             })
             
             initial_value = stock.get_initial_value()
