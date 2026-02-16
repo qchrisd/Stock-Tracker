@@ -208,6 +208,31 @@ def dashboard():
         if item['current_value'] is not None:
             total_current_value += item['current_value']
 
+    # Get account information
+    account = Account.query.first()
+    
+    # Calculate portfolio metrics
+    portfolio_stocks = Stock.query.filter_by(is_watchlist=False).all()
+    portfolio_unrealized_gains = 0
+    portfolio_realized_gains = 0
+    portfolio_total_current_cost_basis = 0
+    portfolio_current_value = 0
+    
+    for stock in portfolio_stocks:
+        current_shares = stock.get_current_shares_from_transactions()
+        if current_shares > 0:
+            portfolio_realized_gains += stock.get_realized_gains_from_transactions()
+            portfolio_total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
+            current_value = stock.get_current_value()
+            if current_value is not None:
+                portfolio_current_value += current_value
+    
+    portfolio_unrealized_gains = portfolio_current_value - portfolio_total_current_cost_basis if portfolio_current_value > 0 else None
+    portfolio_total_return = portfolio_realized_gains + (portfolio_unrealized_gains if portfolio_unrealized_gains else 0)
+    portfolio_percent_change = None
+    if account and account.initial_value and account.initial_value > 0:
+        portfolio_percent_change = (portfolio_total_return / account.initial_value) * 100
+
     # Calculate average performance for Portfolio
     portfolio_avg_price = None
     portfolio_avg_current_price = None
@@ -247,6 +272,11 @@ def dashboard():
         'total_current_value': total_current_value if total_current_value > 0 else None,
         'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
         'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None,
+        'account_initial_value': account.initial_value if account else None,
+        'portfolio_current_value': portfolio_current_value,
+        'portfolio_unrealized_gains': portfolio_unrealized_gains,
+        'portfolio_realized_gains': portfolio_realized_gains,
+        'portfolio_percent_change': portfolio_percent_change,
         'portfolio_avg_shares': portfolio_avg_shares,
         'portfolio_avg_price': portfolio_avg_price,
         'portfolio_avg_current_price': portfolio_avg_current_price,
