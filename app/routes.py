@@ -218,10 +218,14 @@ def dashboard():
     portfolio_total_current_cost_basis = 0
     portfolio_current_value = 0
     
+    # Calculate realized gains from ALL portfolio stocks (including sold stocks)
+    for stock in portfolio_stocks:
+        portfolio_realized_gains += stock.get_realized_gains_from_transactions()
+    
+    # Calculate unrealized gains and current value from active stocks only
     for stock in portfolio_stocks:
         current_shares = stock.get_current_shares_from_transactions()
         if current_shares > 0:
-            portfolio_realized_gains += stock.get_realized_gains_from_transactions()
             portfolio_total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
             current_value = stock.get_current_value()
             if current_value is not None:
