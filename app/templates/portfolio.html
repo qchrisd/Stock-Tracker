@@ -8,6 +8,9 @@
     {% if portfolio %}
         <p class="subtitle">Tracking {{ portfolio|length }} stock{{ 's' if portfolio|length != 1 else '' }}</p>
     {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{{ url_for('main.account_settings') }}" class="btn btn-small btn-secondary">Account Settings</a>
+    </div>
 </div>
 
 {% if portfolio %}
@@ -16,25 +19,47 @@
             <h3>Total Stocks</h3>
             <p class="stat-value">{{ portfolio|length }}</p>
         </div>
+        {% if summary.account_initial_value is not none %}
+            <div class="stat-card">
+                <h3>Account Balance</h3>
+                <p class="stat-value">${{ "{:,.2f}".format(summary.account_initial_value) }}</p>
+            </div>
+        {% endif %}
         {% if summary.total_initial_value > 0 %}
             <div class="stat-card">
-                <h3>Initial Investment</h3>
+                <h3>Total Invested</h3>
                 <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
             </div>
         {% endif %}
         {% if summary.total_current_value %}
             <div class="stat-card">
-                <h3>Current Value</h3>
+                <h3>Current Holdings Value</h3>
                 <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
             </div>
         {% endif %}
-        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
-            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
-                <h3>Total Gain/Loss</h3>
+        {% if summary.unrealized_gains is not none %}
+            <div class="stat-card {% if summary.unrealized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Unrealized Gain/Loss</h3>
                 <p class="stat-value">
-                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
-                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
-                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
+                    {{ "↑" if summary.unrealized_gains >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.unrealized_gains|abs) }}
+                </p>
+            </div>
+        {% endif %}
+        {% if summary.total_realized_gains != 0 %}
+            <div class="stat-card {% if summary.total_realized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Realized Gains/Loss</h3>
+                <p class="stat-value">
+                    {{ "↑" if summary.total_realized_gains >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.total_realized_gains|abs) }}
+                </p>
+            </div>
+        {% endif %}
+        {% if summary.total_dividends > 0 %}
+            <div class="stat-card" style="background-color: #e8f5e9; border-left: 4px solid #4caf50;">
+                <h3>Total Dividends</h3>
+                <p class="stat-value" style="color: #2e7d32;">
+                    ${{ "{:,.2f}".format(summary.total_dividends) }}
                 </p>
             </div>
         {% endif %}
@@ -52,7 +77,6 @@
             <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
             <button class="timeframe-btn active" data-timeframe="all">All</button>
         </div>
-        
         <div id="performanceChart" class="chart"></div>
     </div>
 

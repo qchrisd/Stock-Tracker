@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
-from app.models import db, Stock, Transaction
+from app.models import db, Stock, Transaction, Account
 
 main_bp = Blueprint('main', __name__)
 
@@ -45,14 +45,78 @@ def portfolio():
         except Exception as e:
             flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
 
+    # Get account information
+    account = Account.query.first()
+    
+    # Calculate account gains/losses from realized gains and sales
+    total_realized_gains = 0
+    total_dividends = 0
+    total_sale_proceeds = 0
+    
+    # Calculate from all transactions
+    all_transactions = Transaction.query.filter_by(is_watchlist=False).all()
+    for stock in stocks:
+        total_realized_gains += stock.get_realized_gains_from_transactions()
+        total_dividends += stock.get_dividends_received()
+        total_sale_proceeds += stock.get_proceeds_from_sales()
+
     portfolio_summary = {
         'total_initial_value': total_initial_value,
         'total_current_value': total_current_value if total_current_value > 0 else None,
         'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
-        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
+        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None,
+        'account_initial_value': account.initial_value if account else None,
+        'total_realized_gains': total_realized_gains,
+        'total_dividends': total_dividends,
+        'total_sale_proceeds': total_sale_proceeds,
+        'total_invested': total_initial_value,
+        'unrealized_gains': total_current_value - total_initial_value if total_current_value is not None else None
     }
 
-    return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary)
+    return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary, account=account)
+
+
+@main_bp.route('/account-settings', methods=['GET', 'POST'])
+def account_settings():
+    """Manage account settings and starting value"""
+    account = Account.query.first()
+    
+    if request.method == 'POST':
+        initial_value_str = request.form.get('initial_value', '').strip()
+        start_date_str = request.form.get('start_date', '').strip()
+        
+        if not initial_value_str:
+            flash('Please provide an initial account value', 'error')
+            return redirect(url_for('main.account_settings'))
+        
+        try:
+            initial_value = float(initial_value_str)
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else datetime.utcnow().date()
+            
+            if initial_value < 0:
+                flash('Initial account value must be non-negative', 'error')
+                return redirect(url_for('main.account_settings'))
+            
+            if account:
+                # Update existing account
+                account.initial_value = initial_value
+                account.start_date = start_date
+                db.session.commit()
+                flash(f'Account settings updated: ${initial_value:,.2f} starting on {start_date}', 'success')
+            else:
+                # Create new account
+                account = Account(initial_value=initial_value, start_date=start_date)
+                db.session.add(account)
+                db.session.commit()
+                flash(f'Account created with initial value: ${initial_value:,.2f}', 'success')
+            
+            return redirect(url_for('main.portfolio'))
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.account_settings'))
+    
+    start_date_str = account.start_date.strftime('%Y-%m-%d') if account else datetime.utcnow().date().strftime('%Y-%m-%d')
+    return render_template('account_settings.html', account=account, start_date_str=start_date_str)
 
 
 @main_bp.route('/watchlist')

@@ -5,6 +5,18 @@ import yfinance as yf
 db = SQLAlchemy()
 
 
+class Account(db.Model):
+    """Model for tracking account settings and starting values"""
+    id = db.Column(db.Integer, primary_key=True)
+    initial_value = db.Column(db.Float, nullable=False, default=0)
+    start_date = db.Column(db.Date, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<Account initial_value={self.initial_value}>'
+
+
 class Transaction(db.Model):
     """Model for tracking individual stock transactions (purchases, sales, dividends, reinvestments)"""
     id = db.Column(db.Integer, primary_key=True)
