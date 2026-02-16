@@ -205,6 +205,98 @@
         <a href="{{ url_for('main.add_stock', type='portfolio') }}" class="btn btn-primary">Add Your First Stock</a>
     </div>
 {% endif %}
+
+{% if sold_stocks %}
+    <div class="stocks-table-container" style="margin-top: 40px;">
+        <h3 style="margin-bottom: 20px;">Sold Stocks</h3>
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Symbol</th>
+                    <th>Total Invested</th>
+                    <th>Sale Proceeds</th>
+                    <th>Realized Gain/Loss</th>
+                    <th>Dividends Received</th>
+                    <th>Total Return</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sold_stocks %}
+                    {% set sold_stock_index = loop.index %}
+                    <!-- Sold Stock Main Row -->
+                    <tr class="stock-row" data-toggle="sold-stock-{{ sold_stock_index }}" style="background-color: #f5f5f5;">
+                        <td class="toggle-cell" style="cursor: pointer;">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
+                        <td><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>${{ "{:,.2f}".format(item.cost_basis) }}</td>
+                        <td>${{ "{:,.2f}".format(item.sale_proceeds) }}</td>
+                        <td>
+                            <span class="{% if item.realized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ "↑" if item.realized_gains >= 0 else "↓" }}
+                                ${{ "{:,.2f}".format(item.realized_gains|abs) }}
+                            </span>
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.dividends) }}</td>
+                        <td>
+                            {% set total_return = item.realized_gains + item.dividends %}
+                            <span class="{% if total_return >= 0 %}positive{% else %}negative{% endif %}" style="font-weight: 600;">
+                                {{ "↑" if total_return >= 0 else "↓" }}
+                                ${{ "{:,.2f}".format(total_return|abs) }}
+                            </span>
+                        </td>
+                    </tr>
+
+                    <!-- Transaction Detail Rows (hidden by default) -->
+                    {% if item.transactions %}
+                        {% for txn in item.transactions %}
+                            <tr class="transaction-detail-row" style="display: none; background-color: #fafafa;" data-parent="sold-stock-{{ sold_stock_index }}">
+                                <td></td>
+                                <td colspan="2">
+                                    <span class="transaction-badge 
+                                        {% if txn.type == 'purchase' %}purchase
+                                        {% elif txn.type == 'sale' %}sale
+                                        {% elif txn.type == 'dividend' %}dividend
+                                        {% elif txn.type == 'reinvestment' %}reinvestment
+                                        {% endif %}">{{ txn.type }}</span>
+                                </td>
+                                <td>{{ txn.date.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    {% if txn.shares %}
+                                        {{ txn.shares|round(4) }} shares
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.type == 'dividend' %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% elif txn.price_per_share %}
+                                        ${{ txn.price_per_share|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.shares and txn.price_per_share %}
+                                        ${{ (txn.shares * txn.price_per_share)|round(2) }}
+                                    {% elif txn.amount %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td></td>
+                            </tr>
+                        {% endfor %}
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}

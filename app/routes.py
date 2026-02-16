@@ -16,6 +16,7 @@ def portfolio():
     """Display all portfolio stocks and their value changes"""
     stocks = Stock.query.filter_by(is_watchlist=False).all()
     portfolio_data = []
+    sold_stocks_data = []
     total_initial_value = 0
     total_current_value = 0
 
@@ -29,19 +30,39 @@ def portfolio():
             # Get transactions for this stock
             transactions = Transaction.query.filter_by(symbol=stock.symbol, is_watchlist=False).order_by(Transaction.date).all()
             
-            portfolio_data.append({
+            current_shares = stock.get_current_shares_from_transactions()
+            
+            stock_info = {
                 'stock': stock,
                 'current_price': current_price,
                 'current_value': current_value,
                 'value_change': value_change,
                 'percent_change': percent_change,
                 'transactions': transactions
-            })
+            }
             
-            initial_value = stock.get_initial_value()
-            total_initial_value += initial_value
-            if current_value is not None:
-                total_current_value += current_value
+            # Separate active stocks from sold stocks
+            if current_shares > 0:
+                portfolio_data.append(stock_info)
+                initial_value = stock.get_initial_value()
+                total_initial_value += initial_value
+                if current_value is not None:
+                    total_current_value += current_value
+            else:
+                # Stock has been completely sold, add to sold stocks list
+                cost_basis = stock.get_cost_basis_from_transactions()
+                sale_proceeds = stock.get_proceeds_from_sales()
+                realized_gains = stock.get_realized_gains_from_transactions()
+                dividends = stock.get_unreinvested_dividends()
+                
+                sold_stocks_data.append({
+                    'stock': stock,
+                    'cost_basis': cost_basis,
+                    'sale_proceeds': sale_proceeds,
+                    'realized_gains': realized_gains,
+                    'dividends': dividends,
+                    'transactions': transactions
+                })
         except Exception as e:
             flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
 
@@ -54,13 +75,17 @@ def portfolio():
     total_sale_proceeds = 0
     total_current_cost_basis = 0
     
-    # Calculate from all transactions
-    all_transactions = Transaction.query.filter_by(is_watchlist=False).all()
+    # Calculate realized gains from ALL stocks (active and sold)
     for stock in stocks:
         total_realized_gains += stock.get_realized_gains_from_transactions()
-        total_dividends += stock.get_unreinvested_dividends()
-        total_sale_proceeds += stock.get_proceeds_from_sales()
-        total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
+    
+    # Calculate other metrics from active stocks only
+    for stock in stocks:
+        current_shares = stock.get_current_shares_from_transactions()
+        if current_shares > 0:
+            total_dividends += stock.get_unreinvested_dividends()
+            total_sale_proceeds += stock.get_proceeds_from_sales()
+            total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
 
     # Unrealized gains = current value of holdings - cost basis of currently held shares
     unrealized_gains = total_current_value - total_current_cost_basis if total_current_value is not None else None
@@ -78,7 +103,7 @@ def portfolio():
         'unrealized_gains': unrealized_gains
     }
 
-    return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary, account=account)
+    return render_template('portfolio.html', portfolio=portfolio_data, sold_stocks=sold_stocks_data, summary=portfolio_summary, account=account)
 
 
 @main_bp.route('/account-settings', methods=['GET', 'POST'])
