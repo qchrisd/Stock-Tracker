@@ -8,8 +8,11 @@
     {% if portfolio %}
         <p class="subtitle">Tracking {{ portfolio|length }} stock{{ 's' if portfolio|length != 1 else '' }}</p>
     {% endif %}
-    <div style="margin-top: 15px;">
+    <div style="margin-top: 15px; display: flex; align-items: center; gap: 20px;">
         <a href="{{ url_for('main.account_settings') }}" class="btn btn-small btn-secondary">Account Settings</a>
+        {% if summary.account_initial_value is not none %}
+            <span style="font-size: 16px; font-weight: 500;">Account Balance: <span style="color: #2196F3;">${{ "{:,.2f}".format(summary.account_initial_value) }}</span></span>
+        {% endif %}
     </div>
 </div>
 
@@ -19,18 +22,6 @@
             <h3>Total Stocks</h3>
             <p class="stat-value">{{ portfolio|length }}</p>
         </div>
-        {% if summary.account_initial_value is not none %}
-            <div class="stat-card">
-                <h3>Account Balance</h3>
-                <p class="stat-value">${{ "{:,.2f}".format(summary.account_initial_value) }}</p>
-            </div>
-        {% endif %}
-        {% if summary.total_initial_value > 0 %}
-            <div class="stat-card">
-                <h3>Total Invested</h3>
-                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
-            </div>
-        {% endif %}
         {% if summary.total_current_value %}
             <div class="stat-card">
                 <h3>Current Holdings Value</h3>
