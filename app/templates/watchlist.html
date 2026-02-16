@@ -59,6 +59,9 @@
                             {% endif %}
                         </td>
                         <td class="action-cell">
+                            <form method="GET" action="{{ url_for('main.record_purchase', symbol=item.stock.symbol) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-small btn-primary">Buy</button>
+                            </form>
                             <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}" style="display: inline;">
                                 <button type="submit" class="btn btn-small btn-secondary">Edit</button>
                             </form>

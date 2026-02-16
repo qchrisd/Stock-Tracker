@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
-from app.models import db, Stock
+from app.models import db, Stock, Transaction, Account
 
 main_bp = Blueprint('main', __name__)
 
@@ -16,6 +16,7 @@ def portfolio():
     """Display all portfolio stocks and their value changes"""
     stocks = Stock.query.filter_by(is_watchlist=False).all()
     portfolio_data = []
+    sold_stocks_data = []
     total_initial_value = 0
     total_current_value = 0
 
@@ -26,29 +27,126 @@ def portfolio():
             value_change = stock.get_value_change()
             percent_change = stock.get_value_change_percent()
             
-            portfolio_data.append({
+            # Get transactions for this stock
+            transactions = Transaction.query.filter_by(symbol=stock.symbol, is_watchlist=False).order_by(Transaction.date).all()
+            
+            current_shares = stock.get_current_shares_from_transactions()
+            
+            stock_info = {
                 'stock': stock,
                 'current_price': current_price,
                 'current_value': current_value,
                 'value_change': value_change,
-                'percent_change': percent_change
-            })
+                'percent_change': percent_change,
+                'transactions': transactions
+            }
             
-            initial_value = stock.get_initial_value()
-            total_initial_value += initial_value
-            if current_value is not None:
-                total_current_value += current_value
+            # Separate active stocks from sold stocks
+            if current_shares > 0:
+                portfolio_data.append(stock_info)
+                initial_value = stock.get_initial_value()
+                total_initial_value += initial_value
+                if current_value is not None:
+                    total_current_value += current_value
+            else:
+                # Stock has been completely sold, add to sold stocks list
+                cost_basis = stock.get_cost_basis_from_transactions()
+                sale_proceeds = stock.get_proceeds_from_sales()
+                realized_gains = stock.get_realized_gains_from_transactions()
+                dividends = stock.get_unreinvested_dividends()
+                
+                sold_stocks_data.append({
+                    'stock': stock,
+                    'cost_basis': cost_basis,
+                    'sale_proceeds': sale_proceeds,
+                    'realized_gains': realized_gains,
+                    'dividends': dividends,
+                    'transactions': transactions
+                })
         except Exception as e:
             flash(f"Error fetching data for {stock.symbol}: {str(e)}", 'error')
+
+    # Get account information
+    account = Account.query.first()
+    
+    # Calculate account gains/losses from realized gains and sales
+    total_realized_gains = 0
+    total_dividends = 0
+    total_sale_proceeds = 0
+    total_current_cost_basis = 0
+    
+    # Calculate realized gains from ALL stocks (active and sold)
+    for stock in stocks:
+        total_realized_gains += stock.get_realized_gains_from_transactions()
+    
+    # Calculate other metrics from active stocks only
+    for stock in stocks:
+        current_shares = stock.get_current_shares_from_transactions()
+        if current_shares > 0:
+            total_dividends += stock.get_unreinvested_dividends()
+            total_sale_proceeds += stock.get_proceeds_from_sales()
+            total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
+
+    # Unrealized gains = current value of holdings - cost basis of currently held shares
+    unrealized_gains = total_current_value - total_current_cost_basis if total_current_value is not None else None
 
     portfolio_summary = {
         'total_initial_value': total_initial_value,
         'total_current_value': total_current_value if total_current_value > 0 else None,
         'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
-        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None
+        'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None,
+        'account_initial_value': account.initial_value if account else None,
+        'total_realized_gains': total_realized_gains,
+        'total_dividends': total_dividends,
+        'total_sale_proceeds': total_sale_proceeds,
+        'total_invested': total_initial_value,
+        'unrealized_gains': unrealized_gains
     }
 
-    return render_template('portfolio.html', portfolio=portfolio_data, summary=portfolio_summary)
+    return render_template('portfolio.html', portfolio=portfolio_data, sold_stocks=sold_stocks_data, summary=portfolio_summary, account=account)
+
+
+@main_bp.route('/account-settings', methods=['GET', 'POST'])
+def account_settings():
+    """Manage account settings and starting value"""
+    account = Account.query.first()
+    
+    if request.method == 'POST':
+        initial_value_str = request.form.get('initial_value', '').strip()
+        start_date_str = request.form.get('start_date', '').strip()
+        
+        if not initial_value_str:
+            flash('Please provide an initial account value', 'error')
+            return redirect(url_for('main.account_settings'))
+        
+        try:
+            initial_value = float(initial_value_str)
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else datetime.utcnow().date()
+            
+            if initial_value < 0:
+                flash('Initial account value must be non-negative', 'error')
+                return redirect(url_for('main.account_settings'))
+            
+            if account:
+                # Update existing account
+                account.initial_value = initial_value
+                account.start_date = start_date
+                db.session.commit()
+                flash(f'Account settings updated: ${initial_value:,.2f} starting on {start_date}', 'success')
+            else:
+                # Create new account
+                account = Account(initial_value=initial_value, start_date=start_date)
+                db.session.add(account)
+                db.session.commit()
+                flash(f'Account created with initial value: ${initial_value:,.2f}', 'success')
+            
+            return redirect(url_for('main.portfolio'))
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.account_settings'))
+    
+    start_date_str = account.start_date.strftime('%Y-%m-%d') if account else datetime.utcnow().date().strftime('%Y-%m-%d')
+    return render_template('account_settings.html', account=account, start_date_str=start_date_str)
 
 
 @main_bp.route('/watchlist')
@@ -110,6 +208,35 @@ def dashboard():
         if item['current_value'] is not None:
             total_current_value += item['current_value']
 
+    # Get account information
+    account = Account.query.first()
+    
+    # Calculate portfolio metrics
+    portfolio_stocks = Stock.query.filter_by(is_watchlist=False).all()
+    portfolio_unrealized_gains = 0
+    portfolio_realized_gains = 0
+    portfolio_total_current_cost_basis = 0
+    portfolio_current_value = 0
+    
+    # Calculate realized gains from ALL portfolio stocks (including sold stocks)
+    for stock in portfolio_stocks:
+        portfolio_realized_gains += stock.get_realized_gains_from_transactions()
+    
+    # Calculate unrealized gains and current value from active stocks only
+    for stock in portfolio_stocks:
+        current_shares = stock.get_current_shares_from_transactions()
+        if current_shares > 0:
+            portfolio_total_current_cost_basis += stock.get_current_cost_basis_from_transactions()
+            current_value = stock.get_current_value()
+            if current_value is not None:
+                portfolio_current_value += current_value
+    
+    portfolio_unrealized_gains = portfolio_current_value - portfolio_total_current_cost_basis if portfolio_current_value > 0 else None
+    portfolio_total_return = portfolio_realized_gains + (portfolio_unrealized_gains if portfolio_unrealized_gains else 0)
+    portfolio_percent_change = None
+    if account and account.initial_value and account.initial_value > 0:
+        portfolio_percent_change = (portfolio_total_return / account.initial_value) * 100
+
     # Calculate average performance for Portfolio
     portfolio_avg_price = None
     portfolio_avg_current_price = None
@@ -149,6 +276,11 @@ def dashboard():
         'total_current_value': total_current_value if total_current_value > 0 else None,
         'total_value_change': total_current_value - total_initial_value if total_current_value > 0 else None,
         'total_percent_change': ((total_current_value - total_initial_value) / total_initial_value * 100) if total_initial_value > 0 and total_current_value > 0 else None,
+        'account_initial_value': account.initial_value if account else None,
+        'portfolio_current_value': portfolio_current_value,
+        'portfolio_unrealized_gains': portfolio_unrealized_gains,
+        'portfolio_realized_gains': portfolio_realized_gains,
+        'portfolio_percent_change': portfolio_percent_change,
         'portfolio_avg_shares': portfolio_avg_shares,
         'portfolio_avg_price': portfolio_avg_price,
         'portfolio_avg_current_price': portfolio_avg_current_price,
@@ -222,7 +354,18 @@ def add_stock():
                 is_watchlist=is_watchlist
             )
             
+            # Create corresponding transaction record
+            purchase_transaction = Transaction(
+                symbol=symbol,
+                type='purchase',
+                date=add_date,
+                shares=shares,
+                price_per_share=initial_price,
+                is_watchlist=is_watchlist
+            )
+            
             db.session.add(new_stock)
+            db.session.add(purchase_transaction)
             db.session.commit()
 
             total_value = shares * initial_price
@@ -244,6 +387,246 @@ def add_stock():
             return redirect(url_for('main.add_stock', type=list_type))
 
     return render_template('add_stock.html', list_type=list_type)
+
+
+@main_bp.route('/stock/<symbol>/sale', methods=['GET', 'POST'])
+def record_sale(symbol):
+    """Record a stock sale transaction"""
+    symbol = symbol.upper().strip()
+    stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    
+    if not stock:
+        flash(f'Stock {symbol} not found in portfolio', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    current_shares = stock.get_current_shares_from_transactions()
+    sale_price = None
+    sale_date_str = None
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
+        
+        if not date_str or not shares_str:
+            flash('Please provide date and shares', 'error')
+            return redirect(url_for('main.record_sale', symbol=symbol))
+        
+        try:
+            shares = float(shares_str)
+            sale_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if shares <= 0:
+                flash('Shares must be greater than 0', 'error')
+                return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            if shares > current_shares:
+                flash(f'Cannot sell {shares} shares. You only have {current_shares} shares', 'error')
+                return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            # Fetch the stock price on the sale date
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            
+            # Get historical data for the sale date
+            hist = ticker.history(start=sale_date, end=sale_date)
+            
+            if hist.empty:
+                # Try to get the price from the next available trading day
+                hist = ticker.history(start=sale_date, period='5d')
+                if hist.empty:
+                    flash(f'Could not find price data for {symbol} on or after {sale_date}', 'error')
+                    return redirect(url_for('main.record_sale', symbol=symbol))
+            
+            price_per_share = float(hist['Close'].iloc[0])
+            
+            # Create sale transaction
+            sale_transaction = Transaction(
+                symbol=symbol,
+                type='sale',
+                date=sale_date,
+                shares=shares,
+                price_per_share=price_per_share,
+                is_watchlist=False
+            )
+            
+            db.session.add(sale_transaction)
+            db.session.commit()
+            
+            total_proceeds = shares * price_per_share
+            flash(f'Successfully recorded sale of {shares} shares of {symbol} at ${price_per_share:.2f} (Total: ${total_proceeds:,.2f})', 'success')
+            return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_sale', symbol=symbol))
+    
+    return render_template('record_sale.html', symbol=symbol, current_shares=current_shares, sale_price=sale_price, sale_date_str=sale_date_str)
+
+
+@main_bp.route('/stock/<symbol>/buy', methods=['GET', 'POST'])
+def record_purchase(symbol):
+    """Record a stock purchase transaction for an existing stock"""
+    symbol = symbol.upper().strip()
+    
+    # Check if this is in portfolio or watchlist
+    portfolio_stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    watchlist_stock = Stock.query.filter_by(symbol=symbol, is_watchlist=True).first()
+    
+    stock = portfolio_stock or watchlist_stock
+    
+    if not stock:
+        flash(f'Stock {symbol} not found', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    list_type = 'watchlist' if stock.is_watchlist else 'portfolio'
+    current_shares = stock.get_current_shares_from_transactions()
+    purchase_price = None
+    purchase_date_str = None
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        shares_str = request.form.get('shares', '').strip()
+        
+        if not date_str or not shares_str:
+            flash('Please provide date and shares', 'error')
+            return redirect(url_for('main.record_purchase', symbol=symbol))
+        
+        try:
+            shares = float(shares_str)
+            purchase_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if shares <= 0:
+                flash('Shares must be greater than 0', 'error')
+                return redirect(url_for('main.record_purchase', symbol=symbol))
+            
+            # Fetch the stock price on the purchase date
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            
+            # Get historical data for the purchase date
+            hist = ticker.history(start=purchase_date, end=purchase_date)
+            
+            if hist.empty:
+                # Try to get the price from the next available trading day
+                hist = ticker.history(start=purchase_date, period='5d')
+                if hist.empty:
+                    flash(f'Could not find price data for {symbol} on or after {purchase_date}', 'error')
+                    return redirect(url_for('main.record_purchase', symbol=symbol))
+            
+            price_per_share = float(hist['Close'].iloc[0])
+            
+            # Create purchase transaction
+            purchase_transaction = Transaction(
+                symbol=symbol,
+                type='purchase',
+                date=purchase_date,
+                shares=shares,
+                price_per_share=price_per_share,
+                is_watchlist=stock.is_watchlist
+            )
+            
+            db.session.add(purchase_transaction)
+            db.session.commit()
+            
+            total_cost = shares * price_per_share
+            flash(f'Successfully recorded purchase of {shares} shares of {symbol} at ${price_per_share:.2f} (Total: ${total_cost:,.2f})', 'success')
+            
+            if stock.is_watchlist:
+                return redirect(url_for('main.watchlist'))
+            else:
+                return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_purchase', symbol=symbol))
+    
+    return render_template('record_purchase.html', symbol=symbol, current_shares=current_shares, list_type=list_type, purchase_price=purchase_price, purchase_date_str=purchase_date_str)
+
+
+@main_bp.route('/stock/<symbol>/dividend', methods=['GET', 'POST'])
+def record_dividend(symbol):
+    """Record a dividend payment"""
+    symbol = symbol.upper().strip()
+    stock = Stock.query.filter_by(symbol=symbol, is_watchlist=False).first()
+    
+    if not stock:
+        flash(f'Stock {symbol} not found in portfolio', 'error')
+        return redirect(url_for('main.portfolio'))
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        amount_str = request.form.get('amount', '').strip()
+        reinvest = request.form.get('reinvest') == 'on'
+        
+        if not date_str or not amount_str:
+            flash('Please provide date and dividend amount', 'error')
+            return redirect(url_for('main.record_dividend', symbol=symbol))
+        
+        try:
+            amount = float(amount_str)
+            dividend_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            
+            if amount <= 0:
+                flash('Dividend amount must be greater than 0', 'error')
+                return redirect(url_for('main.record_dividend', symbol=symbol))
+            
+            # Create dividend transaction
+            dividend_transaction = Transaction(
+                symbol=symbol,
+                type='dividend',
+                date=dividend_date,
+                amount=amount,
+                is_watchlist=False
+            )
+            
+            db.session.add(dividend_transaction)
+            
+            # If reinvesting, create reinvestment transaction
+            if reinvest:
+                price_str = request.form.get('reinvest_price', '').strip()
+                if not price_str:
+                    flash('Please provide price per share for reinvestment', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
+                try:
+                    price_per_share = float(price_str)
+                except ValueError:
+                    flash('Invalid price format', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
+                if price_per_share <= 0:
+                    flash('Reinvestment price must be greater than 0', 'error')
+                    db.session.rollback()
+                    return redirect(url_for('main.record_dividend', symbol=symbol))
+                
+                reinvestment_shares = amount / price_per_share
+                
+                reinvestment_transaction = Transaction(
+                    symbol=symbol,
+                    type='reinvestment',
+                    date=dividend_date,
+                    shares=reinvestment_shares,
+                    price_per_share=price_per_share,
+                    is_watchlist=False
+                )
+                
+                db.session.add(reinvestment_transaction)
+                db.session.commit()
+                flash(f'Recorded dividend of ${amount:.2f} and reinvested {reinvestment_shares:.4f} shares at ${price_per_share:.2f}', 'success')
+            else:
+                db.session.commit()
+                flash(f'Recorded dividend of ${amount:.2f}', 'success')
+            
+            return redirect(url_for('main.portfolio'))
+            
+        except ValueError as e:
+            db.session.rollback()
+            flash(f'Invalid input: {str(e)}', 'error')
+            return redirect(url_for('main.record_dividend', symbol=symbol))
+    
+    return render_template('record_dividend.html', symbol=symbol)
 
 
 @main_bp.route('/stock/<int:stock_id>/delete', methods=['POST'])
@@ -518,3 +901,146 @@ def get_portfolio_average_chart_data():
         return jsonify(chart_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/transactions')
+def transactions():
+    """Display all transactions"""
+    all_transactions = Transaction.query.order_by(Transaction.date.desc()).all()
+    
+    # Group transactions by symbol for easy viewing
+    transactions_data = []
+    for txn in all_transactions:
+        transactions_data.append({
+            'transaction': txn,
+            'stock_symbol': txn.symbol,
+            'type_display': txn.type.capitalize(),
+            'list_type': 'Watchlist' if txn.is_watchlist else 'Portfolio'
+        })
+    
+    return render_template('transactions.html', transactions=transactions_data)
+
+
+@main_bp.route('/transaction/<int:txn_id>/delete', methods=['POST'])
+def delete_transaction(txn_id):
+    """Delete a transaction"""
+    transaction = Transaction.query.get(txn_id)
+    
+    if not transaction:
+        flash('Transaction not found', 'error')
+        return redirect(url_for('main.transactions'))
+    
+    symbol = transaction.symbol
+    txn_type = transaction.type
+    
+    try:
+        db.session.delete(transaction)
+        db.session.commit()
+        flash(f'Successfully deleted {txn_type} transaction for {symbol}', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting transaction: {str(e)}', 'error')
+    
+    return redirect(url_for('main.transactions'))
+
+
+@main_bp.route('/transaction/<int:txn_id>/edit', methods=['GET', 'POST'])
+def edit_transaction(txn_id):
+    """Edit a transaction"""
+    transaction = Transaction.query.get(txn_id)
+    
+    if not transaction:
+        flash('Transaction not found', 'error')
+        return redirect(url_for('main.transactions'))
+    
+    if request.method == 'POST':
+        date_str = request.form.get('date')
+        
+        # For purchases, sales, and reinvestments: edit shares and price
+        if transaction.type in ('purchase', 'sale', 'reinvestment'):
+            shares_str = request.form.get('shares', '').strip()
+            price_str = request.form.get('price', '').strip()
+            
+            if not date_str or not shares_str or not price_str:
+                flash('Please provide date, shares, and price', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+            
+            try:
+                shares = float(shares_str)
+                price = float(price_str)
+                txn_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                
+                if shares <= 0 or price <= 0:
+                    flash('Shares and price must be greater than 0', 'error')
+                    return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+                
+                transaction.date = txn_date
+                transaction.shares = shares
+                transaction.price_per_share = price
+                db.session.commit()
+                
+                flash(f'Successfully updated {transaction.type} transaction for {transaction.symbol}', 'success')
+                return redirect(url_for('main.transactions'))
+                
+            except ValueError as e:
+                flash(f'Invalid input: {str(e)}', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+        
+        # For dividends: edit amount
+        elif transaction.type == 'dividend':
+            amount_str = request.form.get('amount', '').strip()
+            
+            if not date_str or not amount_str:
+                flash('Please provide date and amount', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+            
+            try:
+                amount = float(amount_str)
+                txn_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                
+                if amount <= 0:
+                    flash('Amount must be greater than 0', 'error')
+                    return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+                
+                transaction.date = txn_date
+                transaction.amount = amount
+                db.session.commit()
+                
+                flash(f'Successfully updated dividend transaction for {transaction.symbol}', 'success')
+                return redirect(url_for('main.transactions'))
+                
+            except ValueError as e:
+                flash(f'Invalid input: {str(e)}', 'error')
+                return redirect(url_for('main.edit_transaction', txn_id=txn_id))
+    
+    return render_template('edit_transaction.html', transaction=transaction)
+
+
+@main_bp.route('/api/stock-price/<symbol>')
+def get_stock_price(symbol):
+    """API endpoint to fetch stock price for a given date"""
+    symbol = symbol.upper().strip()
+    date_str = request.args.get('date')
+    
+    if not date_str:
+        return jsonify({'error': 'Date parameter required'}), 400
+    
+    try:
+        import yfinance as yf
+        price_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=price_date, end=price_date)
+        
+        if hist.empty:
+            # Try to get the price from the next available trading day
+            hist = ticker.history(start=price_date, period='5d')
+            if hist.empty:
+                return jsonify({'error': f'No price data available for {symbol} on or after {price_date}'}), 404
+        
+        price = float(hist['Close'].iloc[0])
+        return jsonify({'price': price})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

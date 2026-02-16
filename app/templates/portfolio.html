@@ -8,6 +8,12 @@
     {% if portfolio %}
         <p class="subtitle">Tracking {{ portfolio|length }} stock{{ 's' if portfolio|length != 1 else '' }}</p>
     {% endif %}
+    <div style="margin-top: 15px; display: flex; align-items: center; gap: 20px;">
+        <a href="{{ url_for('main.account_settings') }}" class="btn btn-small btn-secondary">Account Settings</a>
+        {% if summary.account_initial_value is not none %}
+            <span style="font-size: 16px; font-weight: 500;">Account Balance: <span style="color: #2196F3;">${{ "{:,.2f}".format(summary.account_initial_value) }}</span></span>
+        {% endif %}
+    </div>
 </div>
 
 {% if portfolio %}
@@ -16,25 +22,35 @@
             <h3>Total Stocks</h3>
             <p class="stat-value">{{ portfolio|length }}</p>
         </div>
-        {% if summary.total_initial_value > 0 %}
-            <div class="stat-card">
-                <h3>Initial Investment</h3>
-                <p class="stat-value">${{ "{:,.2f}".format(summary.total_initial_value) }}</p>
-            </div>
-        {% endif %}
         {% if summary.total_current_value %}
             <div class="stat-card">
-                <h3>Current Value</h3>
+                <h3>Current Holdings Value</h3>
                 <p class="stat-value">${{ "{:,.2f}".format(summary.total_current_value) }}</p>
             </div>
         {% endif %}
-        {% if summary.total_value_change is not none and summary.total_percent_change is not none %}
-            <div class="stat-card {% if summary.total_value_change >= 0 %}positive{% else %}negative{% endif %}">
-                <h3>Total Gain/Loss</h3>
+        {% if summary.unrealized_gains is not none %}
+            <div class="stat-card {% if summary.unrealized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Unrealized Gain/Loss</h3>
                 <p class="stat-value">
-                    {{ "↑" if summary.total_value_change >= 0 else "↓" }}
-                    ${{ "{:,.2f}".format(summary.total_value_change|abs) }}
-                    <span class="stat-percent">({{ "{:.2f}".format(summary.total_percent_change) }}%)</span>
+                    {{ "↑" if summary.unrealized_gains >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.unrealized_gains|abs) }}
+                </p>
+            </div>
+        {% endif %}
+        {% if summary.total_realized_gains != 0 %}
+            <div class="stat-card {% if summary.total_realized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                <h3>Realized Gains/Loss</h3>
+                <p class="stat-value">
+                    {{ "↑" if summary.total_realized_gains >= 0 else "↓" }}
+                    ${{ "{:,.2f}".format(summary.total_realized_gains|abs) }}
+                </p>
+            </div>
+        {% endif %}
+        {% if summary.total_dividends > 0 %}
+            <div class="stat-card" style="background-color: #e8f5e9; border-left: 4px solid #4caf50;">
+                <h3>Total Dividends</h3>
+                <p class="stat-value" style="color: #2e7d32;">
+                    ${{ "{:,.2f}".format(summary.total_dividends) }}
                 </p>
             </div>
         {% endif %}
@@ -52,7 +68,6 @@
             <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
             <button class="timeframe-btn active" data-timeframe="all">All</button>
         </div>
-        
         <div id="performanceChart" class="chart"></div>
     </div>
 
@@ -60,9 +75,10 @@
         <table class="stocks-table">
             <thead>
                 <tr>
+                    <th></th>
                     <th>Symbol</th>
                     <th>Shares</th>
-                    <th>Date Aquired</th>
+                    <th>Date Acquired</th>
                     <th>Acquired Price</th>
                     <th>Price Today</th>
                     <th>Acquired Market Value</th>
@@ -73,9 +89,14 @@
             </thead>
             <tbody>
                 {% for item in portfolio %}
-                    <tr>
+                    {% set stock_index = loop.index %}
+                    <!-- Stock Main Row -->
+                    <tr class="stock-row" data-toggle="stock-{{ stock_index }}">
+                        <td class="toggle-cell" style="cursor: pointer;">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
                         <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
-                        <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
+                        <td>{{ "{:.4f}".format(item.stock.get_current_shares_from_transactions()) if item.stock.get_current_shares_from_transactions() % 1 != 0 else item.stock.get_current_shares_from_transactions()|int }}</td>
                         <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
                         <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
                         <td>
@@ -104,14 +125,80 @@
                             {% endif %}
                         </td>
                         <td class="action-cell">
-                            <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-secondary">Edit</button>
-                            </form>
-                            <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');" style="display: inline;">
-                                <button type="submit" class="btn btn-small btn-danger">Remove</button>
-                            </form>
+                            <div class="action-dropdown">
+                                <button type="button" class="btn btn-small btn-secondary action-toggle" data-stock-id="{{ item.stock.id }}">Actions</button>
+                                <div class="action-menu" id="actions-{{ item.stock.id }}" style="display: none;">
+                                    <form method="GET" action="{{ url_for('main.record_purchase', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-primary btn-block">Buy</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.record_sale', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-success btn-block">Sell</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.record_dividend', symbol=item.stock.symbol) }}">
+                                        <button type="submit" class="btn btn-small btn-info btn-block">Dividend</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.edit_stock', stock_id=item.stock.id) }}">
+                                        <button type="submit" class="btn btn-small btn-secondary btn-block">Edit</button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('main.delete_stock', stock_id=item.stock.id) }}" onsubmit="return confirm('Are you sure you want to remove {{ item.stock.symbol }}?');">
+                                        <button type="submit" class="btn btn-small btn-danger btn-block">Remove</button>
+                                    </form>
+                                </div>
+                            </div>
                         </td>
                     </tr>
+
+                    <!-- Transaction Detail Rows (hidden by default) -->
+                    {% if item.transactions %}
+                        {% for txn in item.transactions %}
+                            <tr class="transaction-detail-row" style="display: none;" data-parent="stock-{{ stock_index }}">
+                                <td></td>
+                                <td colspan="2">
+                                    <span class="transaction-badge 
+                                        {% if txn.type == 'purchase' %}purchase
+                                        {% elif txn.type == 'sale' %}sale
+                                        {% elif txn.type == 'dividend' %}dividend
+                                        {% elif txn.type == 'reinvestment' %}reinvestment
+                                        {% endif %}">{{ txn.type }}</span>
+                                </td>
+                                <td>{{ txn.date.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    {% if txn.shares %}
+                                        {{ txn.shares|round(4) }} shares
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.type == 'dividend' %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% elif txn.price_per_share %}
+                                        ${{ txn.price_per_share|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.shares and txn.price_per_share %}
+                                        ${{ (txn.shares * txn.price_per_share)|round(2) }}
+                                    {% elif txn.amount %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td colspan="3"></td>
+                                <td class="action-cell">
+                                    <form method="GET" action="{{ url_for('main.edit_transaction', txn_id=txn.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-small btn-secondary">Edit</button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('main.delete_transaction', txn_id=txn.id) }}" onsubmit="return confirm('Are you sure you want to delete this {{ txn.type }} transaction?');" style="display: inline;">
+                                        <button type="submit" class="btn btn-small btn-danger">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% endif %}
                 {% endfor %}
             </tbody>
         </table>
@@ -123,133 +210,287 @@
         <a href="{{ url_for('main.add_stock', type='portfolio') }}" class="btn btn-primary">Add Your First Stock</a>
     </div>
 {% endif %}
+
+{% if sold_stocks %}
+    <div class="stocks-table-container" style="margin-top: 40px;">
+        <h3 style="margin-bottom: 20px;">Sold Stocks</h3>
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Symbol</th>
+                    <th>Total Invested</th>
+                    <th>Sale Proceeds</th>
+                    <th>Realized Gain/Loss</th>
+                    <th>Dividends Received</th>
+                    <th>Total Return</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sold_stocks %}
+                    {% set sold_stock_index = loop.index %}
+                    <!-- Sold Stock Main Row -->
+                    <tr class="stock-row" data-toggle="sold-stock-{{ sold_stock_index }}" style="background-color: #f5f5f5;">
+                        <td class="toggle-cell" style="cursor: pointer;">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
+                        <td><strong>{{ item.stock.symbol }}</strong></td>
+                        <td>${{ "{:,.2f}".format(item.cost_basis) }}</td>
+                        <td>${{ "{:,.2f}".format(item.sale_proceeds) }}</td>
+                        <td>
+                            <span class="{% if item.realized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ "↑" if item.realized_gains >= 0 else "↓" }}
+                                ${{ "{:,.2f}".format(item.realized_gains|abs) }}
+                            </span>
+                        </td>
+                        <td>${{ "{:,.2f}".format(item.dividends) }}</td>
+                        <td>
+                            {% set total_return = item.realized_gains + item.dividends %}
+                            <span class="{% if total_return >= 0 %}positive{% else %}negative{% endif %}" style="font-weight: 600;">
+                                {{ "↑" if total_return >= 0 else "↓" }}
+                                ${{ "{:,.2f}".format(total_return|abs) }}
+                            </span>
+                        </td>
+                    </tr>
+
+                    <!-- Transaction Detail Rows (hidden by default) -->
+                    {% if item.transactions %}
+                        {% for txn in item.transactions %}
+                            <tr class="transaction-detail-row" style="display: none; background-color: #fafafa;" data-parent="sold-stock-{{ sold_stock_index }}">
+                                <td></td>
+                                <td colspan="2">
+                                    <span class="transaction-badge 
+                                        {% if txn.type == 'purchase' %}purchase
+                                        {% elif txn.type == 'sale' %}sale
+                                        {% elif txn.type == 'dividend' %}dividend
+                                        {% elif txn.type == 'reinvestment' %}reinvestment
+                                        {% endif %}">{{ txn.type }}</span>
+                                </td>
+                                <td>{{ txn.date.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    {% if txn.shares %}
+                                        {{ txn.shares|round(4) }} shares
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.type == 'dividend' %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% elif txn.price_per_share %}
+                                        ${{ txn.price_per_share|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if txn.shares and txn.price_per_share %}
+                                        ${{ (txn.shares * txn.price_per_share)|round(2) }}
+                                    {% elif txn.amount %}
+                                        ${{ txn.amount|round(2) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td></td>
+                            </tr>
+                        {% endfor %}
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Only load chart if we have stocks
-    const chartDiv = document.getElementById('performanceChart');
-    if (!chartDiv || !chartDiv.offsetParent) return; // Chart container not visible
+    // Handle action menu toggles
+    const actionToggles = document.querySelectorAll('.action-toggle');
     
-    let currentTimeFrame = '1d'; // Track current time frame
+    actionToggles.forEach(toggle => {
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const stockId = this.getAttribute('data-stock-id');
+            const menu = document.getElementById(`actions-${stockId}`);
+            
+            // Close other open menus
+            document.querySelectorAll('.action-menu').forEach(m => {
+                if (m.id !== `actions-${stockId}`) {
+                    m.style.display = 'none';
+                }
+            });
+            
+            // Toggle current menu
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+    });
     
-    // Function to load and render chart
-    function loadChart(timeFrame = 'all') {
-        currentTimeFrame = timeFrame;
-        
-        // Update button states
-        document.querySelectorAll('.timeframe-btn').forEach(btn => {
-            btn.classList.remove('active');
-            if (btn.dataset.timeframe === timeFrame) {
-                btn.classList.add('active');
+    // Close action menu when clicking elsewhere
+    document.addEventListener('click', function() {
+        document.querySelectorAll('.action-menu').forEach(menu => {
+            menu.style.display = 'none';
+        });
+    });
+    
+    // Handle expand/collapse for stock rows
+    const stockRows = document.querySelectorAll('.stock-row');
+    
+    stockRows.forEach(row => {
+        row.addEventListener('click', function(e) {
+            // Prevent if clicking on buttons or forms
+            if (e.target.closest('button') || e.target.closest('form') || e.target.closest('a')) {
+                return;
             }
+            toggleTransactions(this);
+        });
+    });
+    
+    function toggleTransactions(stockRow) {
+        const toggleId = stockRow.getAttribute('data-toggle');
+        const transactionRows = document.querySelectorAll(`.transaction-detail-row[data-parent="${toggleId}"]`);
+        const toggleArrow = stockRow.querySelector('.toggle-arrow');
+        
+        // Toggle visibility
+        const isHidden = transactionRows[0] && transactionRows[0].style.display === 'none';
+        transactionRows.forEach(row => {
+            row.style.display = isHidden ? 'table-row' : 'none';
         });
         
-        const url = '{{ url_for("main.get_chart_data") }}' + '?time_frame=' + timeFrame;
+        // Rotate arrow
+        if (toggleArrow) {
+            toggleArrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+            toggleArrow.style.transition = 'transform 0.2s ease';
+        }
         
-        fetch(url)
-            .then(response => {
-                if (!response.ok) {
-                    console.log('No chart data available yet');
-                    return null;
+        // Toggle active class for styling
+        stockRow.classList.toggle('expanded', isHidden);
+    }
+
+    // Chart functionality
+    const chartDiv = document.getElementById('performanceChart');
+    if (chartDiv && chartDiv.offsetParent) {
+        let currentTimeFrame = '1d'; // Track current time frame
+        
+        // Function to load and render chart
+        function loadChart(timeFrame = 'all') {
+            currentTimeFrame = timeFrame;
+            
+            // Update button states
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.timeframe === timeFrame) {
+                    btn.classList.add('active');
                 }
-                return response.json();
-            })
-            .then(data => {
-                if (!data) return;
-                
-                const traces = [];
-                const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
-                let colorIndex = 0;
-                
-                // Add stock traces
-                if (data.stocks && Object.keys(data.stocks).length > 0) {
-                    for (const [symbol, stockData] of Object.entries(data.stocks)) {
-                        const dates = stockData.data.map(d => d.date);
-                        const percentChanges = stockData.data.map(d => d.percent_change);
+            });
+            
+            const url = '{{ url_for("main.get_chart_data") }}' + '?time_frame=' + timeFrame;
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        console.log('No chart data available yet');
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    
+                    const traces = [];
+                    const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+                    let colorIndex = 0;
+                    
+                    // Add stock traces
+                    if (data.stocks && Object.keys(data.stocks).length > 0) {
+                        for (const [symbol, stockData] of Object.entries(data.stocks)) {
+                            const dates = stockData.data.map(d => d.date);
+                            const percentChanges = stockData.data.map(d => d.percent_change);
+                            
+                            traces.push({
+                                x: dates,
+                                y: percentChanges,
+                                name: symbol,
+                                mode: 'lines',
+                                line: {
+                                    color: colors[colorIndex % colors.length],
+                                    width: 2
+                                },
+                                hovertemplate: '<b>' + symbol + '</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                            });
+                            colorIndex++;
+                        }
+                    }
+                    
+                    // Add S&P 500 trace
+                    if (data.sp500) {
+                        const dates = data.sp500.map(d => d.date);
+                        const percentChanges = data.sp500.map(d => d.percent_change);
                         
                         traces.push({
                             x: dates,
                             y: percentChanges,
-                            name: symbol,
+                            name: 'S&P 500',
                             mode: 'lines',
                             line: {
-                                color: colors[colorIndex % colors.length],
-                                width: 2
+                                color: '#34495e',
+                                width: 3,
+                                dash: 'dash'
                             },
-                            hovertemplate: '<b>' + symbol + '</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
+                            hovertemplate: '<b>S&P 500</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
                         });
-                        colorIndex++;
                     }
-                }
-                
-                // Add S&P 500 trace
-                if (data.sp500) {
-                    const dates = data.sp500.map(d => d.date);
-                    const percentChanges = data.sp500.map(d => d.percent_change);
                     
-                    traces.push({
-                        x: dates,
-                        y: percentChanges,
-                        name: 'S&P 500',
-                        mode: 'lines',
-                        line: {
-                            color: '#34495e',
-                            width: 3,
-                            dash: 'dash'
+                    const layout = {
+                        title: 'Stock Performance Comparison (Percentage Return)',
+                        xaxis: {
+                            title: 'Date',
+                            type: 'date'
                         },
-                        hovertemplate: '<b>S&P 500</b><br>%{x}<br>Return: %{y:.2f}%<extra></extra>'
-                    });
-                }
-                
-                const layout = {
-                    title: 'Stock Performance Comparison (Percentage Return)',
-                    xaxis: {
-                        title: 'Date',
-                        type: 'date'
-                    },
-                    yaxis: {
-                        title: 'Return (%)',
-                        tickformat: '.1f'
-                    },
-                    hovermode: 'x unified',
-                    plot_bgcolor: '#f8f9fa',
-                    paper_bgcolor: 'white',
-                    font: {
-                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
-                        size: 12
-                    },
-                    margin: {
-                        t: 50,
-                        b: 50,
-                        l: 60,
-                        r: 40
-                    },
-                    responsive: true
-                };
-                
-                const config = {
-                    responsive: true,
-                    displayModeBar: true,
-                    displaylogo: false
-                };
-                
-                Plotly.newPlot('performanceChart', traces, layout, config);
-            })
-            .catch(error => console.error('Error loading chart data:', error));
-    }
-    
-    // Load initial chart with all time view
-    loadChart('all');
-    
-    // Attach event listeners to time frame buttons
-    document.querySelectorAll('.timeframe-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            loadChart(this.dataset.timeframe);
+                        yaxis: {
+                            title: 'Return (%)',
+                            tickformat: '.1f'
+                        },
+                        hovermode: 'x unified',
+                        plot_bgcolor: '#f8f9fa',
+                        paper_bgcolor: 'white',
+                        font: {
+                            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
+                            size: 12
+                        },
+                        margin: {
+                            t: 50,
+                            b: 50,
+                            l: 60,
+                            r: 40
+                        },
+                        responsive: true
+                    };
+                    
+                    const config = {
+                        responsive: true,
+                        displayModeBar: true,
+                        displaylogo: false
+                    };
+                    
+                    Plotly.newPlot('performanceChart', traces, layout, config);
+                })
+                .catch(error => console.error('Error loading chart data:', error));
+        }
+        
+        // Load initial chart with all time view
+        loadChart('all');
+        
+        // Attach event listeners to time frame buttons
+        document.querySelectorAll('.timeframe-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                loadChart(this.dataset.timeframe);
+            });
         });
-    });
+    }
 });
 </script>
 {% endblock %}

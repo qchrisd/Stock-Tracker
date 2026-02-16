@@ -32,56 +32,52 @@
             <thead>
                 <tr>
                     <th></th>
-                    <th>Symbol</th>
-                    <th>Type</th>
-                    <th>Shares</th>
-                    <th>Date Aquired</th>
-                    <th>Acquired Price</th>
-                    <th>Price Today</th>
-                    <th>Acquired Market Value</th>
-                    <th>Market Value Today</th>
-                    <th>% Difference</th>
+                    <th>Account</th>
+                    <th>Current Market Value</th>
+                    <th>Unrealized Gain/Loss</th>
+                    <th>Realized Gain/Loss</th>
+                    <th>% Change</th>
                 </tr>
             </thead>
             <tbody>
                 <!-- Portfolio Average Row -->
-                {% if summary.portfolio_avg_shares %}
+                {% if summary.account_initial_value is not none %}
                     <tr class="average-row portfolio-average" data-toggle="portfolio">
                         <td class="toggle-cell">
                             <span class="toggle-arrow">▶</span>
                         </td>
-                        <td class="symbol-cell"><strong>Portfolio Avg</strong></td>
+                        <td class="symbol-cell"><strong>Portfolio</strong></td>
                         <td>
-                            <span class="list-type-badge portfolio">
-                                Portfolio
-                            </span>
-                        </td>
-                        <td>{{ "{:.2f}".format(summary.portfolio_avg_shares) if summary.portfolio_avg_shares % 1 != 0 else summary.portfolio_avg_shares|int }}</td>
-                        <td>—</td>
-                        <td>${{ "%.2f"|format(summary.portfolio_avg_price) }}</td>
-                        <td>
-                            {% if summary.portfolio_avg_current_price %}
-                                ${{ "%.2f"|format(summary.portfolio_avg_current_price) }}
+                            {% if summary.portfolio_current_value %}
+                                ${{ "{:,.2f}".format(summary.portfolio_current_value) }}
                             {% else %}
-                                <span class="error">N/A</span>
-                            {% endif %}
-                        </td>
-                        <td>—</td>
-                        <td>
-                            {% if summary.portfolio_avg_percent is not none %}
-                                ${{ "%.2f"|format(summary.portfolio_avg_current_price - summary.portfolio_avg_price) if summary.portfolio_avg_current_price else "N/A" }}
-                            {% else %}
-                                <span class="error">N/A</span>
+                                —
                             {% endif %}
                         </td>
                         <td>
-                            {% if summary.portfolio_avg_percent is not none %}
-                                <span class="percent-change {% if summary.portfolio_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if summary.portfolio_avg_percent >= 0 else "↓" }}
-                                    {{ "%.2f"|format(summary.portfolio_avg_percent) }}%
+                            {% if summary.portfolio_unrealized_gains is not none %}
+                                <span class="{% if summary.portfolio_unrealized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.portfolio_unrealized_gains >= 0 else "↓" }}
+                                    ${{ "{:,.2f}".format(summary.portfolio_unrealized_gains|abs) }}
                                 </span>
                             {% else %}
-                                <span class="error">N/A</span>
+                                —
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="{% if summary.portfolio_realized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ "↑" if summary.portfolio_realized_gains >= 0 else "↓" }}
+                                ${{ "{:,.2f}".format(summary.portfolio_realized_gains|abs) }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if summary.portfolio_percent_change is not none %}
+                                <span class="percent-change {% if summary.portfolio_percent_change >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if summary.portfolio_percent_change >= 0 else "↓" }}
+                                    {{ "%.2f"|format(summary.portfolio_percent_change) }}%
+                                </span>
+                            {% else %}
+                                —
                             {% endif %}
                         </td>
                     </tr>
@@ -94,22 +90,6 @@
                             <td></td>
                             <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
                             <td>
-                                <span class="list-type-badge {% if item.list_type == 'Portfolio' %}portfolio{% else %}watchlist{% endif %}">
-                                    {{ item.list_type }}
-                                </span>
-                            </td>
-                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
-                            <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
-                            <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
-                            <td>
-                                {% if item.current_price %}
-                                    ${{ "%.2f"|format(item.current_price) }}
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                            <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
-                            <td>
                                 {% if item.current_value %}
                                     ${{ "{:,.2f}".format(item.current_value) }}
                                 {% else %}
@@ -117,9 +97,23 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% if item.value_change is not none and item.percent_change is not none %}
-                                    <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
-                                        {{ "↑" if item.value_change >= 0 else "↓" }}
+                                {% set unrealized = item.current_value - item.stock.get_current_cost_basis_from_transactions() if item.current_value else 0 %}
+                                <span class="{% if unrealized >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if unrealized >= 0 else "↓" }}
+                                    ${{ "{:,.2f}".format(unrealized|abs) }}
+                                </span>
+                            </td>
+                            <td>
+                                {% set realized = item.stock.get_realized_gains_from_transactions() %}
+                                <span class="{% if realized >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if realized >= 0 else "↓" }}
+                                    ${{ "{:,.2f}".format(realized|abs) }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if item.percent_change is not none %}
+                                    <span class="percent-change {% if item.percent_change >= 0 %}positive{% else %}negative{% endif %}">
+                                        {{ "↑" if item.percent_change >= 0 else "↓" }}
                                         {{ "%.2f"|format(item.percent_change) }}%
                                     </span>
                                 {% else %}
@@ -136,30 +130,10 @@
                         <td class="toggle-cell">
                             <span class="toggle-arrow">▶</span>
                         </td>
-                        <td class="symbol-cell"><strong>Watchlist Avg</strong></td>
-                        <td>
-                            <span class="list-type-badge watchlist">
-                                Watchlist
-                            </span>
-                        </td>
-                        <td>{{ "{:.2f}".format(summary.watchlist_avg_shares) if summary.watchlist_avg_shares % 1 != 0 else summary.watchlist_avg_shares|int }}</td>
+                        <td class="symbol-cell"><strong>Watchlist</strong></td>
                         <td>—</td>
-                        <td>${{ "%.2f"|format(summary.watchlist_avg_price) }}</td>
-                        <td>
-                            {% if summary.watchlist_avg_current_price %}
-                                ${{ "%.2f"|format(summary.watchlist_avg_current_price) }}
-                            {% else %}
-                                <span class="error">N/A</span>
-                            {% endif %}
-                        </td>
                         <td>—</td>
-                        <td>
-                            {% if summary.watchlist_avg_percent is not none %}
-                                ${{ "%.2f"|format(summary.watchlist_avg_current_price - summary.watchlist_avg_price) if summary.watchlist_avg_current_price else "N/A" }}
-                            {% else %}
-                                <span class="error">N/A</span>
-                            {% endif %}
-                        </td>
+                        <td>—</td>
                         <td>
                             {% if summary.watchlist_avg_percent is not none %}
                                 <span class="percent-change {% if summary.watchlist_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
@@ -180,22 +154,6 @@
                             <td></td>
                             <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
                             <td>
-                                <span class="list-type-badge {% if item.list_type == 'Portfolio' %}portfolio{% else %}watchlist{% endif %}">
-                                    {{ item.list_type }}
-                                </span>
-                            </td>
-                            <td>{{ "{:.2f}".format(item.stock.shares) if item.stock.shares % 1 != 0 else item.stock.shares|int }}</td>
-                            <td>{{ item.stock.add_date.strftime('%Y-%m-%d') }}</td>
-                            <td>${{ "%.2f"|format(item.stock.initial_price) }}</td>
-                            <td>
-                                {% if item.current_price %}
-                                    ${{ "%.2f"|format(item.current_price) }}
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                            <td>${{ "{:,.2f}".format(item.stock.get_initial_value()) }}</td>
-                            <td>
                                 {% if item.current_value %}
                                     ${{ "{:,.2f}".format(item.current_value) }}
                                 {% else %}
@@ -203,9 +161,23 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% if item.value_change is not none and item.percent_change is not none %}
-                                    <span class="percent-change {% if item.value_change >= 0 %}positive{% else %}negative{% endif %}">
-                                        {{ "↑" if item.value_change >= 0 else "↓" }}
+                                {% set unrealized = item.current_value - item.stock.get_current_cost_basis_from_transactions() if item.current_value else 0 %}
+                                <span class="{% if unrealized >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if unrealized >= 0 else "↓" }}
+                                    ${{ "{:,.2f}".format(unrealized|abs) }}
+                                </span>
+                            </td>
+                            <td>
+                                {% set realized = item.stock.get_realized_gains_from_transactions() %}
+                                <span class="{% if realized >= 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "↑" if realized >= 0 else "↓" }}
+                                    ${{ "{:,.2f}".format(realized|abs) }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if item.percent_change is not none %}
+                                    <span class="percent-change {% if item.percent_change >= 0 %}positive{% else %}negative{% endif %}">
+                                        {{ "↑" if item.percent_change >= 0 else "↓" }}
                                         {{ "%.2f"|format(item.percent_change) }}%
                                     </span>
                                 {% else %}
