@@ -1,7 +1,9 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response
 from datetime import datetime
 import yfinance as yf
-from app.models import db, Stock, Transaction, Account
+import requests
+import json
+from app.models import db, Stock, Transaction, Account, StockCache
 
 main_bp = Blueprint('main', __name__)
 
@@ -1046,11 +1048,202 @@ def get_stock_price(symbol):
         return jsonify({'error': str(e)}), 500
 
 
+@main_bp.route('/api/cache-stocks')
+def cache_stocks():
+    """
+    Server-Sent Events endpoint that downloads and caches financial data for all SEC stocks.
+    Sends progress updates to the client.
+    """
+    def generate_progress():
+        try:
+            # Get all SEC tickers
+            yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': 'Fetching SEC securities list...'})}\n\n"
+            
+            symbols = get_sec_stock_symbols()
+            total = len(symbols)
+            
+            if total == 0:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
+                return
+            
+            yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities...'})}\n\n"
+            
+            # Clear old cache
+            StockCache.query.delete()
+            db.session.commit()
+            
+            processed = 0
+            successful = 0
+            
+            for symbol in symbols:
+                processed += 1
+                try:
+                    # Fetch data with timeout
+                    ticker = yf.Ticker(symbol)
+                    
+                    # Fetch historical data (1 year)
+                    hist = ticker.history(period='1y')
+                    if len(hist) < 200:
+                        continue
+                    
+                    # Fetch info
+                    info = ticker.info
+                    
+                    # Calculate metrics
+                    current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
+                    price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
+                    price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
+                    
+                    if not current_price or not price_52w_low:
+                        continue
+                    
+                    distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
+                    
+                    market_cap = info.get('marketCap')
+                    market_cap_billions = (market_cap / 1_000_000_000) if market_cap else None
+                    
+                    forward_pe = info.get('forwardPE')
+                    trailing_pe = info.get('trailingPE')
+                    dividend_yield = info.get('dividendYield', 0)
+                    
+                    # Create cache entry
+                    cache_entry = StockCache(
+                        symbol=symbol,
+                        name=info.get('longName', symbol),
+                        sector=info.get('sector', 'N/A'),
+                        market_cap=market_cap,
+                        market_cap_billions=market_cap_billions,
+                        forward_pe=forward_pe,
+                        trailing_pe=trailing_pe,
+                        dividend_yield=dividend_yield,
+                        current_price=current_price,
+                        price_52w_low=price_52w_low,
+                        price_52w_high=price_52w_high,
+                        distance_from_low=distance_from_low
+                    )
+                    db.session.add(cache_entry)
+                    successful += 1
+                    
+                    # Commit every 50 stocks
+                    if successful % 50 == 0:
+                        db.session.commit()
+                        yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
+                
+                except Exception as e:
+                    # Skip stocks with errors
+                    continue
+            
+            # Final commit
+            db.session.commit()
+            
+            yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'successful': successful, 'message': f'Successfully cached {successful} stocks'})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Error during caching: {str(e)}'})}\n\n"
+    
+    return Response(generate_progress(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
+
+
+def get_sec_stock_symbols():
+    """
+    Fetch all valid tradeable stock symbols from the SEC's official company_tickers.json file.
+    This is the most comprehensive and authoritative source of all US traded securities.
+    Contains 10,000+ stocks across all US exchanges.
+    """
+    import time
+    
+    url = 'https://www.sec.gov/files/company_tickers.json'
+    max_retries = 3
+    
+    # Use proper User-Agent to avoid rate limiting
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract all ticker symbols from SEC data
+            tickers = []
+            for entry in data.values():
+                ticker = entry.get('ticker', '').strip().upper()
+                if ticker:
+                    tickers.append(ticker)
+            
+            unique_tickers = sorted(list(set(tickers)))
+            print(f"Successfully fetched {len(unique_tickers)} securities from SEC")
+            return unique_tickers
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1}/{max_retries} failed to fetch SEC tickers: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                time.sleep(wait_time)
+            else:
+                print("Warning: Failed to fetch SEC stock symbols after retries")
+                return []
+        except Exception as e:
+            print(f"Error parsing SEC data: {e}")
+            return []
+
+
+def get_all_stock_symbols():
+    """
+    Get a comprehensive list of US stock symbols dynamically from the SEC.
+    This includes all valid tradeable stocks across all exchanges.
+    """
+    return get_sec_stock_symbols()
+
+
+def get_fallback_stock_symbols():
+    """
+    Fallback hardcoded list of US stocks for when dynamic fetch fails.
+    """
+    stocks = [
+        # Mega cap tech
+        'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA',
+        # Large cap financials & diversified
+        'BRK.B', 'BRK.A', 'JPM', 'BAC', 'GS', 'MS', 'C', 'WFC', 'USB', 'PNC', 'TD',
+        # Healthcare & Pharma
+        'JNJ', 'UNH', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'CVS', 'LLY', 'AZN', 'AMGN', 'BNTX', 'MRNA', 'SYK',
+        # Consumer discretionary
+        'WMT', 'HD', 'NKE', 'MCD', 'SBUX', 'TJX', 'LOW', 'COST', 'MAR', 'LVS', 'ULTA', 'GWW',
+        # Consumer staples
+        'PG', 'PEP', 'KO', 'MO', 'PM', 'CL', 'KMB', 'GIS', 'EL', 'CAG', 'MDLZ', 'MNST',
+        # Industrials
+        'BA', 'CAT', 'MMM', 'HON', 'ITW', 'GE', 'EMR', 'ETN', 'ROK', 'PCAR', 'NSC', 'UNP', 'CSX',
+        # Tech/Software
+        'V', 'MA', 'ADBE', 'CRM', 'INTC', 'AMD', 'CSCO', 'PYPL', 'INTU', 'ANET', 'NOW', 'SNOW', 'AVLR', 'FTNT',
+        # Semiconductors
+        'QCOM', 'AVGO', 'MU', 'LRCX', 'ASML', 'TXN', 'MCHP', 'ON', 'KLAC', 'MRVL', 'SLAB', 'AMAT',
+        # Communication services
+        'DIS', 'NFLX', 'CMCSA', 'T', 'VZ', 'CHTR', 'FOX', 'FOXE', 'PARA', 'ROKU', 'SNAP', 'PINS', 'MTCH',
+        # Energy
+        'COP', 'CVX', 'XOM', 'SLB', 'EOG', 'FANG', 'KMI', 'OKE', 'MPC', 'PSX', 'PXD', 'WMB',
+        # Utilities
+        'SO', 'EXC', 'DUK', 'AEP', 'AWK', 'NEE', 'CMS', 'SRE', 'PEG', 'ED', 'XEL', 'PPL', 'AEE',
+        # Real estate & Infrastructure
+        'PLD', 'EQIX', 'DLR', 'WELL', 'IRM', 'AVB', 'EQR', 'AMT', 'CCI', 'O', 'PSA', 'SPG', 'WY',
+        # Materials
+        'MLM', 'HUN', 'APD', 'DOW', 'DD', 'ECL', 'LIN', 'PPG', 'ALB', 'NEM', 'GLD', 'SLV', 'FCX', 'RIO', 'VALE',
+    ]
+    
+    return sorted(list(set(stocks)))
+
+
 @main_bp.route('/research')
 def research():
     """Display research page with stock recommendations"""
     suggestions = []
     error_message = None
+    cache_status = None
     
     # Get filter parameters from query string with defaults
     symbols_input = request.args.get('symbols', '').strip()
@@ -1061,106 +1254,105 @@ def research():
     forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
     
     try:
-        # Use custom symbols if provided, otherwise use default S&P 500 list
+        # Check if we have cached data
+        cache_count = StockCache.query.count()
+        
         if symbols_input:
-            sp500_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+            # If user provides custom symbols, fetch live data for those specific stocks
+            symbols_to_search = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+            cache_status = f'Searching {len(symbols_to_search)} custom symbols (live data)'
+            
+            for symbol in symbols_to_search:
+                try:
+                    ticker = yf.Ticker(symbol)
+                    hist = ticker.history(period='1y')
+                    if len(hist) < 200:
+                        continue
+                    current_price = hist['Close'].iloc[-1]
+                    info = ticker.info
+                    week_52_high = hist['High'].tail(252).max()
+                    week_52_low = hist['Low'].tail(252).min()
+                    if not current_price or not week_52_low or not week_52_high:
+                        continue
+                    distance_from_low = ((current_price - week_52_low) / week_52_low) * 100
+                    forward_pe = info.get('forwardPE') or info.get('trailingPE')
+                    if not forward_pe:
+                        continue
+                    market_cap = info.get('marketCap')
+                    if not market_cap:
+                        continue
+                    market_cap_billions = market_cap / 1_000_000_000
+                    
+                    if (
+                        distance_min <= distance_from_low <= distance_max and
+                        forward_pe <= forward_pe_max and
+                        market_cap_min <= market_cap_billions <= market_cap_max
+                    ):
+                        suggestions.append({
+                            'symbol': symbol,
+                            'name': info.get('longName', symbol),
+                            'current_price': current_price,
+                            'week_52_low': week_52_low,
+                            'week_52_high': week_52_high,
+                            'distance_from_low': distance_from_low,
+                            'forward_pe': forward_pe,
+                            'market_cap': market_cap,
+                            'market_cap_billions': market_cap_billions,
+                            'sector': info.get('sector', 'N/A'),
+                            'dividend_yield': info.get('dividendYield', 0),
+                            'pe_ratio': info.get('trailingPE')
+                        })
+                except Exception as e:
+                    continue
+        
+        elif cache_count > 0:
+            # Use cached data if available
+            cache_status = f'✓ {cache_count:,} stocks cached and ready to search'
+            
+            # Query cached stocks with filters
+            cached_stocks = StockCache.query.filter(
+                StockCache.market_cap_billions >= market_cap_min,
+                StockCache.market_cap_billions <= market_cap_max,
+                StockCache.distance_from_low >= distance_min,
+                StockCache.distance_from_low <= distance_max
+            ).all()
+            
+            # Apply forward P/E filter (handling None values)
+            for stock in cached_stocks:
+                forward_pe = stock.forward_pe or stock.trailing_pe or 0
+                if forward_pe == 0 or forward_pe > forward_pe_max:
+                    continue
+                
+                suggestions.append({
+                    'symbol': stock.symbol,
+                    'name': stock.name,
+                    'current_price': stock.current_price,
+                    'week_52_low': stock.price_52w_low,
+                    'week_52_high': stock.price_52w_high,
+                    'distance_from_low': stock.distance_from_low,
+                    'forward_pe': forward_pe,
+                    'market_cap': stock.market_cap,
+                    'market_cap_billions': stock.market_cap_billions,
+                    'sector': stock.sector,
+                    'dividend_yield': stock.dividend_yield,
+                    'pe_ratio': stock.trailing_pe
+                })
+        
         else:
-            sp500_symbols = [
-                # Mega cap tech
-                'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA',
-                # Large cap financials & diversified
-                'BRK.B', 'BRK.A', 'JPM', 'BAC', 'GS', 'MS', 'C', 'WFC',
-                # Healthcare
-                'JNJ', 'UNH', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'CVS', 'LLY', 'AZN', 'AMGN',
-                # Consumer discretionary
-                'WMT', 'HD', 'NKE', 'MCD', 'SBUX', 'TJX', 'LOW', 'COST', 'MAR', 'LVS',
-                # Consumer staples
-                'PG', 'PEP', 'KO', 'MO', 'PM', 'CL', 'KMB', 'GIS', 'EL', 'CAG',
-                # Industrials
-                'BA', 'CAT', 'MMM', 'HON', 'ITW', 'GE', 'EMR', 'ETN', 'ROK', 'PCAR',
-                # Tech/Software
-                'V', 'MA', 'ADBE', 'CRM', 'INTC', 'AMD', 'CSCO', 'PYPL', 'INTU', 'ANET', 'NOW',
-                # Semiconductors
-                'QCOM', 'AVGO', 'MU', 'LRCX', 'ASML', 'TXN', 'MCHP', 'ON', 'KLAC',
-                # Communication services
-                'DIS', 'NFLX', 'CMCSA', 'T', 'VZ', 'CHTR', 'FOX', 'FOXE',
-                # Energy
-                'COP', 'CVX', 'XOM', 'SLB', 'EOG', 'FANG', 'KMI', 'OKE', 'MPC', 'PSX',
-                # Utilities
-                'SO', 'EXC', 'DUK', 'AEP', 'AWK', 'NEE', 'CMS', 'SRE', 'PEG', 'ED',
-                # Real estate
-                'PLD', 'EQIX', 'DLR', 'WELL', 'IRM', 'AVB', 'EQR', 'AMT', 'CCI',
-                # Materials
-                'MLM', 'HUN', 'APD', 'DOW', 'DD', 'ECL', 'LIN', 'PPG', 'ALB', 'NEM',
-                # Additional popular stocks
-                'TROW', 'GLD', 'SQ', 'SHOP', 'ZM', 'DDOG', 'CRWD', 'OKTA', 'TWLO',
-                'ROKU', 'SNAP', 'PINS', 'CME', 'ICE', 'EXPE', 'BKNG', 'TCOM', 'BSX', 'VRTX',
-                'ILMN', 'MTCH', 'SIRI', 'AXP', 'DFS', 'COF', 'ALLY', 'F', 'GM', 'TM', 'HMC',
-                'RIO', 'VALE', 'X', 'MT', 'CLF', 'FCX', 'AAL', 'DAL', 'UAL', 'LUV', 'ALK',
-                'AZO', 'ORLY', 'O', 'STWD', 'MAT', 'HAS', 'KMX', 'UAA', 'DECK', 'ROST',
-                'FIVE', 'PZZA', 'RH', 'LESL', 'CHWY', 'DNOW', 'POOL'
-            ]
-
-        total = len(sp500_symbols)
-        fetched = 0
-        filtered = 0
-        for symbol in sp500_symbols:
-            try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period='1y')
-                if len(hist) < 200:  # Allow at least 200 trading days (~10 months)
-                    continue
-                current_price = hist['Close'].iloc[-1]
-                info = ticker.info
-                week_52_high = hist['High'].tail(252).max()
-                week_52_low = hist['Low'].tail(252).min()
-                if not current_price or not week_52_low or not week_52_high:
-                    continue
-                distance_from_low = ((current_price - week_52_low) / week_52_low) * 100
-                forward_pe = info.get('forwardPE')
-                if not forward_pe:
-                    forward_pe = info.get('trailingPE')
-                if not forward_pe:
-                    continue
-                market_cap = info.get('marketCap')
-                if not market_cap:
-                    continue
-                market_cap_billions = market_cap / 1_000_000_000
-                fetched += 1
-                if (
-                    distance_min <= distance_from_low <= distance_max and
-                    forward_pe <= forward_pe_max and
-                    market_cap_min <= market_cap_billions <= market_cap_max
-                ):
-                    filtered += 1
-                    suggestions.append({
-                        'symbol': symbol,
-                        'name': info.get('longName', symbol),
-                        'current_price': current_price,
-                        'week_52_low': week_52_low,
-                        'week_52_high': week_52_high,
-                        'distance_from_low': distance_from_low,
-                        'forward_pe': forward_pe,
-                        'market_cap': market_cap,
-                        'market_cap_billions': market_cap_billions,
-                        'sector': info.get('sector', 'N/A'),
-                        'dividend_yield': info.get('dividendYield', 0),
-                        'pe_ratio': info.get('trailingPE')
-                    })
-            except Exception as e:
-                continue
-        print(f"[RESEARCH DEBUG] Total symbols: {total}, Fetched: {fetched}, Passed filters: {filtered}")
-        suggestions.sort(key=lambda x: x['distance_from_low'])
+            # If no cache and no custom symbols, show informational message
+            cache_status = '⏳ Ready to cache 10,397+ SEC securities. Click "Download Stock Data" to begin.'
+            error_message = 'Cache is empty. Click the "Download Stock Data" button to populate the cache with all 10,397+ SEC-listed securities. This one-time download enables fast filtering across your entire investment universe.'
+    
     except Exception as e:
         error_message = f"Error fetching research data: {str(e)}"
     
     return render_template('research.html', 
                          suggestions=suggestions, 
                          error_message=error_message,
+                         cache_status=cache_status,
                          symbols=symbols_input,
                          market_cap_min=market_cap_min,
                          market_cap_max=market_cap_max,
                          distance_min=distance_min,
                          distance_max=distance_max,
                          forward_pe_max=forward_pe_max)
-

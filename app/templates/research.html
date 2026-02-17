@@ -8,6 +8,31 @@
     <p class="subtitle">Find promising investment opportunities</p>
 </div>
 
+<!-- Cache Status and Download Button -->
+<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <strong>Data Cache Status:</strong>
+        <span id="cache-status" style="color: #27ae60; font-weight: bold;">{{ cache_status if cache_status else 'No cached data' }}</span>
+    </div>
+    <button type="button" id="download-btn" class="btn btn-success" onclick="startCacheDownload()">
+        📥 Download Stock Data
+    </button>
+</div>
+
+<!-- Progress Bar (hidden by default) -->
+<div id="progress-container" style="display: none; margin-bottom: 20px;">
+    <div style="margin-bottom: 10px;">
+        <strong>Downloading and caching stock data...</strong>
+        <span id="progress-status">Initializing...</span>
+    </div>
+    <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
+        <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+            0%
+        </div>
+    </div>
+    <div id="progress-details" style="margin-top: 10px; font-size: 12px; color: #7f8c8d;"></div>
+</div>
+
 {% if error_message %}
     <div style="background-color: #fadbd8; border: 1px solid #e74c3c; color: #c0392b; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
         <strong>Error:</strong> {{ error_message }}
@@ -21,9 +46,9 @@
             <!-- Stock Symbols to Research -->
             <div class="filter-group">
                 <label for="symbols"><strong>Stock Symbols (comma-separated)</strong></label>
-                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search popular US stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
+                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search ALL SEC-listed stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                    Enter stock ticker symbols separated by commas. Leave blank to search across 200+ popular US stocks across all sectors.
+                    Enter stock ticker symbols separated by commas. Leave blank to search all 10,397+ SEC-listed tradeable securities (download data first for best performance).
                 </div>
             </div>
 
@@ -258,6 +283,99 @@ function sortTable(column, direction) {
     
     // Re-insert sorted rows
     rows.forEach(row => tbody.appendChild(row));
+}
+
+// Cache download and progress tracking
+function startCacheDownload() {
+    const downloadBtn = document.getElementById('download-btn');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressStatus = document.getElementById('progress-status');
+    const progressDetails = document.getElementById('progress-details');
+    const cacheStatus = document.getElementById('cache-status');
+    
+    // Disable button and show progress
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Downloading...';
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressStatus.textContent = 'Initializing...';
+    progressDetails.textContent = '';
+    
+    // Create EventSource to receive progress updates
+    const eventSource = new EventSource('/api/cache-stocks');
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            
+            if (data.status === 'fetching_tickers') {
+                progressStatus.textContent = data.message;
+            } 
+            else if (data.status === 'fetching_started') {
+                progressStatus.textContent = data.message;
+                progressDetails.textContent = `Total stocks to process: ${data.total}`;
+            }
+            else if (data.status === 'progress') {
+                const percent = data.percent || 0;
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = percent + '%';
+                progressStatus.textContent = `Processing: ${data.processed}/${data.total}`;
+                progressDetails.textContent = `Successfully cached: ${data.successful} stocks`;
+            }
+            else if (data.status === 'complete') {
+                const percent = 100;
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = percent + '%';
+                progressStatus.textContent = '✓ Download Complete!';
+                progressDetails.innerHTML = `<strong style="color: #27ae60;">${data.successful} stocks successfully cached!</strong>`;
+                cacheStatus.textContent = `${data.successful} stocks cached`;
+                cacheStatus.style.color = '#27ae60';
+                
+                // Close event source
+                eventSource.close();
+                
+                // Re-enable button after a short delay
+                setTimeout(() => {
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = '📥 Download Stock Data';
+                    // Optionally hide progress bar after a few seconds
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                    }, 3000);
+                }, 1000);
+            }
+            else if (data.status === 'error') {
+                progressStatus.textContent = '✗ Error occurred';
+                progressDetails.innerHTML = `<strong style="color: #e74c3c;">${data.message}</strong>`;
+                eventSource.close();
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = '📥 Download Stock Data';
+            }
+        } catch (e) {
+            console.error('Error parsing progress data:', e);
+        }
+    };
+    
+    eventSource.onerror = function(event) {
+        progressStatus.textContent = '✗ Connection error';
+        progressDetails.textContent = 'Failed to connect to server';
+        eventSource.close();
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = '📥 Download Stock Data';
+    };
+}
+
+function resetFilters() {
+    document.getElementById('market_cap_min').value = '0.1';
+    document.getElementById('market_cap_max').value = '10000';
+    document.getElementById('distance_min_slider').value = '0';
+    document.getElementById('distance_max_slider').value = '100';
+    document.getElementById('distance_min').value = '0';
+    document.getElementById('distance_max').value = '100';
+    document.getElementById('distance_display').textContent = '0.0% - 100.0%';
+    document.getElementById('forward_pe_max').value = '100';
 }
 </script>
 

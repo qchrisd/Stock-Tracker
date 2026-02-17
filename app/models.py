@@ -280,3 +280,40 @@ class Stock(db.Model):
             'percent_change': percent_change,
             'date_added': self.date_added.isoformat()
         }
+
+class StockCache(db.Model):
+    """Model for caching financial data of all tradeable stocks"""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(255))
+    sector = db.Column(db.String(100))
+    market_cap = db.Column(db.Float)  # In dollars
+    market_cap_billions = db.Column(db.Float)  # In billions (for convenience)
+    forward_pe = db.Column(db.Float)
+    trailing_pe = db.Column(db.Float)
+    dividend_yield = db.Column(db.Float)
+    current_price = db.Column(db.Float)
+    price_52w_low = db.Column(db.Float)
+    price_52w_high = db.Column(db.Float)
+    distance_from_low = db.Column(db.Float)  # Percentage
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    def __repr__(self):
+        return f'<StockCache {self.symbol} @ {self.current_price}>'
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'symbol': self.symbol,
+            'name': self.name,
+            'sector': self.sector,
+            'current_price': self.current_price,
+            'price_52w_low': self.price_52w_low,
+            'price_52w_high': self.price_52w_high,
+            'distance_from_low': self.distance_from_low,
+            'forward_pe': self.forward_pe,
+            'trailing_pe': self.trailing_pe,
+            'market_cap': self.market_cap,
+            'market_cap_billions': self.market_cap_billions,
+            'dividend_yield': self.dividend_yield
+        }
