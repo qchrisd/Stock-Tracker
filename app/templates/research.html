@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Research{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Research & Stock Suggestions</h2>
+    <p class="subtitle">Find promising investment opportunities</p>
+</div>
+
+{% if error_message %}
+    <div style="background-color: #fadbd8; border: 1px solid #e74c3c; color: #c0392b; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+        <strong>Error:</strong> {{ error_message }}
+    </div>
+{% endif %}
+
+<div class="research-criteria">
+    <h3>Filter Criteria</h3>
+    <form method="GET" action="{{ url_for('main.research') }}" id="filter-form">
+        <div class="filter-grid">
+            <!-- Stock Symbols to Research -->
+            <div class="filter-group">
+                <label for="symbols"><strong>Stock Symbols (comma-separated)</strong></label>
+                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search popular S&P 500 stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    Enter stock ticker symbols separated by commas. Leave blank to search popular large-cap stocks.
+                </div>
+            </div>
+
+            <!-- Market Cap Range -->
+            <div class="filter-group">
+                <label for="market_cap_min"><strong>Market Cap Range (Billions)</strong></label>
+                <div class="range-inputs">
+                    <input type="number" id="market_cap_min" name="market_cap_min" min="0" step="10" 
+                           value="{{ market_cap_min }}" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="market_cap_max" name="market_cap_max" min="0" step="10" 
+                           value="{{ market_cap_max }}" placeholder="Max">
+                </div>
+            </div>
+
+            <!-- 52-Week Distance Range -->
+            <div class="filter-group">
+                <label for="distance_slider"><strong>Distance from 52-Week Low</strong></label>
+                <div class="distance-display">
+                    <span id="distance_display">{{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</span>
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="distance_min_slider" min="0" max="100" step="0.5" 
+                           value="{{ distance_min }}" class="distance-slider">
+                    <input type="range" id="distance_max_slider" min="0" max="100" step="0.5" 
+                           value="{{ distance_max }}" class="distance-slider">
+                </div>
+                <input type="hidden" id="distance_min" name="distance_min" value="{{ distance_min }}">
+                <input type="hidden" id="distance_max" name="distance_max" value="{{ distance_max }}">
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    0% = 52-week low, 100% = 52-week high
+                </div>
+            </div>
+
+            <!-- Forward P/E Maximum -->
+            <div class="filter-group">
+                <label for="forward_pe_max"><strong>Forward P/E (Max)</strong></label>
+                <input type="number" id="forward_pe_max" name="forward_pe_max" min="0" step="1" 
+                       value="{{ forward_pe_max }}" placeholder="Max P/E">
+            </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-primary">Apply Filters</button>
+            <button type="reset" class="btn btn-secondary" onclick="resetFilters()">Reset to Defaults</button>
+        </div>
+    </form>
+</div>
+
+{% if suggestions %}
+    <div class="stocks-table-container">
+        <p style="margin-bottom: 15px; color: #7f8c8d;"><strong>{{ suggestions|length }}</strong> stock(s) matching your criteria</p>
+        <table class="stocks-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Company Name</th>
+                    <th>Sector</th>
+                    <th>Current Price</th>
+                    <th>52-Week Low</th>
+                    <th>52-Week High</th>
+                    <th>% From Low</th>
+                    <th>Forward P/E</th>
+                    <th>Trailing P/E</th>
+                    <th>Market Cap</th>
+                    <th>Div Yield</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stock in suggestions %}
+                    <tr>
+                        <td><strong>{{ stock.symbol }}</strong></td>
+                        <td>{{ stock.name }}</td>
+                        <td>{{ stock.sector }}</td>
+                        <td>${{ "{:.2f}".format(stock.current_price) }}</td>
+                        <td>${{ "{:.2f}".format(stock.week_52_low) }}</td>
+                        <td>${{ "{:.2f}".format(stock.week_52_high) }}</td>
+                        <td>
+                            <span class="percent-change {% if stock.distance_from_low >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ "{:.2f}".format(stock.distance_from_low) }}%
+                            </span>
+                        </td>
+                        <td>
+                            {% if stock.forward_pe %}
+                                {{ "{:.2f}".format(stock.forward_pe) }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stock.pe_ratio %}
+                                {{ "{:.2f}".format(stock.pe_ratio) }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:.1f}".format(stock.market_cap_billions) }}B</td>
+                        <td>
+                            {% if stock.dividend_yield %}
+                                {{ "{:.2f}".format(stock.dividend_yield * 100) }}%
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="GET" action="{{ url_for('main.add_stock', type='portfolio') }}" style="display: inline;">
+                                <input type="hidden" name="symbol" value="{{ stock.symbol }}">
+                                <button type="submit" class="btn btn-small btn-primary">Add to Portfolio</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No Matching Stocks Found</h3>
+        <p>No stocks currently match your filter criteria:</p>
+        <ul style="text-align: left; display: inline-block; margin: 20px 0;">
+            <li>Market Cap: ${{ "{:.0f}".format(market_cap_min) }}B - ${{ "{:.0f}".format(market_cap_max) }}B</li>
+            <li>Distance from 52-week low: {{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</li>
+            <li>Forward P/E: ≤ {{ "{:.1f}".format(forward_pe_max) }}</li>
+        </ul>
+        <p>Try adjusting your filters to find more opportunities.</p>
+    </div>
+{% endif %}
+
+<script>
+function resetFilters() {
+    document.getElementById('market_cap_min').value = 10;
+    document.getElementById('market_cap_max').value = 5000;
+    document.getElementById('distance_min_slider').value = 0;
+    document.getElementById('distance_max_slider').value = 15;
+    document.getElementById('forward_pe_max').value = 40;
+    updateDistanceDisplay();
+}
+
+function updateDistanceDisplay() {
+    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
+    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
+    
+    document.getElementById('distance_min').value = minVal;
+    document.getElementById('distance_max').value = maxVal;
+    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
+    
+    // Ensure min doesn't exceed max
+    if (minVal > maxVal) {
+        document.getElementById('distance_min_slider').value = maxVal;
+        document.getElementById('distance_min').value = maxVal;
+    }
+}
+
+function updateMaxDistance() {
+    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
+    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
+    
+    document.getElementById('distance_min').value = minVal;
+    document.getElementById('distance_max').value = maxVal;
+    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
+    
+    // Ensure max doesn't go below min
+    if (maxVal < minVal) {
+        document.getElementById('distance_max_slider').value = minVal;
+        document.getElementById('distance_max').value = minVal;
+    }
+}
+
+document.getElementById('distance_min_slider').addEventListener('input', updateDistanceDisplay);
+document.getElementById('distance_max_slider').addEventListener('input', updateMaxDistance);
+</script>
+
+{% endblock %}

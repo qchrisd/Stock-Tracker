@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
+import yfinance as yf
 from app.models import db, Stock, Transaction, Account
 
 main_bp = Blueprint('main', __name__)
@@ -1043,4 +1044,95 @@ def get_stock_price(symbol):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/research')
+def research():
+    """Display research page with stock recommendations"""
+    suggestions = []
+    error_message = None
+    
+    # Get filter parameters from query string with defaults
+    symbols_input = request.args.get('symbols', '').strip()
+    market_cap_min = request.args.get('market_cap_min', 0.1, type=float)  # Default 0.1B (minimum viable cap)
+    market_cap_max = request.args.get('market_cap_max', 10000, type=float)  # Default 10000B (essentially unlimited)
+    distance_min = request.args.get('distance_min', 0, type=float)  # Default 0%
+    distance_max = request.args.get('distance_max', 100, type=float)  # Default 100% (entire 52-week range)
+    forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
+    
+    try:
+        # Use custom symbols if provided, otherwise use default S&P 500 list
+        if symbols_input:
+            sp500_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+        else:
+            sp500_symbols = [
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
+                'WMT', 'JPM', 'MA', 'PG', 'HD', 'DIS', 'PYPL', 'NFLX', 'ADBE', 'CSCO',
+                'AMD', 'CRM', 'INTC', 'VZ', 'ABT', 'COST', 'TMO', 'QCOM', 'AVGO', 'TMUS',
+                'PEP', 'KO', 'MCD', 'NKE', 'LLY', 'ABBV', 'COP', 'MRK', 'PFE', 'CVX',
+                'WBA', 'BA', 'CAT', 'HON', 'GE', 'IBM', 'MMM', 'SO', 'EXC', 'CMG'
+            ]
+
+        total = len(sp500_symbols)
+        fetched = 0
+        filtered = 0
+        for symbol in sp500_symbols:
+            try:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period='1y')
+                if len(hist) < 200:  # Allow at least 200 trading days (~10 months)
+                    continue
+                current_price = hist['Close'].iloc[-1]
+                info = ticker.info
+                week_52_high = hist['High'].tail(252).max()
+                week_52_low = hist['Low'].tail(252).min()
+                if not current_price or not week_52_low or not week_52_high:
+                    continue
+                distance_from_low = ((current_price - week_52_low) / week_52_low) * 100
+                forward_pe = info.get('forwardPE')
+                if not forward_pe:
+                    forward_pe = info.get('trailingPE')
+                if not forward_pe:
+                    continue
+                market_cap = info.get('marketCap')
+                if not market_cap:
+                    continue
+                market_cap_billions = market_cap / 1_000_000_000
+                fetched += 1
+                if (
+                    distance_min <= distance_from_low <= distance_max and
+                    forward_pe <= forward_pe_max and
+                    market_cap_min <= market_cap_billions <= market_cap_max
+                ):
+                    filtered += 1
+                    suggestions.append({
+                        'symbol': symbol,
+                        'name': info.get('longName', symbol),
+                        'current_price': current_price,
+                        'week_52_low': week_52_low,
+                        'week_52_high': week_52_high,
+                        'distance_from_low': distance_from_low,
+                        'forward_pe': forward_pe,
+                        'market_cap': market_cap,
+                        'market_cap_billions': market_cap_billions,
+                        'sector': info.get('sector', 'N/A'),
+                        'dividend_yield': info.get('dividendYield', 0),
+                        'pe_ratio': info.get('trailingPE')
+                    })
+            except Exception as e:
+                continue
+        print(f"[RESEARCH DEBUG] Total symbols: {total}, Fetched: {fetched}, Passed filters: {filtered}")
+        suggestions.sort(key=lambda x: x['distance_from_low'])
+    except Exception as e:
+        error_message = f"Error fetching research data: {str(e)}"
+    
+    return render_template('research.html', 
+                         suggestions=suggestions, 
+                         error_message=error_message,
+                         symbols=symbols_input,
+                         market_cap_min=market_cap_min,
+                         market_cap_max=market_cap_max,
+                         distance_min=distance_min,
+                         distance_max=distance_max,
+                         forward_pe_max=forward_pe_max)
 
