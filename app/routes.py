@@ -1084,10 +1084,7 @@ def cache_stocks():
                 successful = 0
                 batch = []  # Batch of entries to add
                 
-                # Limit to first 100 stocks for testing
-                test_symbols = symbols[:100]
-                
-                for symbol in test_symbols:
+                for symbol in symbols:
                     processed += 1
                     try:
                         # Fetch data with timeout
@@ -1143,7 +1140,7 @@ def cache_stocks():
                                 db.session.add(entry)
                             db.session.commit()
                             batch = []
-                            yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': 100, 'successful': successful, 'percent': int((processed/100)*100)})}\n\n"
+                            yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
                     
                     except Exception as e:
                         # Skip stocks with errors - don't print
@@ -1155,7 +1152,7 @@ def cache_stocks():
                         db.session.add(entry)
                     db.session.commit()
                 
-                yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': 100, 'successful': successful, 'message': f'Successfully cached {successful} stocks (test: first 100 only)'})}\n\n"
+                yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'successful': successful, 'message': f'Successfully cached {successful:,} stocks'})}\n\n"
                 
             except Exception as e:
                 error_msg = f"{str(e)}"
