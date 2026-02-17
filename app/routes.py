@@ -1066,11 +1066,39 @@ def research():
             sp500_symbols = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
         else:
             sp500_symbols = [
-                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
-                'WMT', 'JPM', 'MA', 'PG', 'HD', 'DIS', 'PYPL', 'NFLX', 'ADBE', 'CSCO',
-                'AMD', 'CRM', 'INTC', 'VZ', 'ABT', 'COST', 'TMO', 'QCOM', 'AVGO', 'TMUS',
-                'PEP', 'KO', 'MCD', 'NKE', 'LLY', 'ABBV', 'COP', 'MRK', 'PFE', 'CVX',
-                'WBA', 'BA', 'CAT', 'HON', 'GE', 'IBM', 'MMM', 'SO', 'EXC', 'CMG'
+                # Mega cap tech
+                'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA',
+                # Large cap financials & diversified
+                'BRK.B', 'BRK.A', 'JPM', 'BAC', 'GS', 'MS', 'C', 'WFC',
+                # Healthcare
+                'JNJ', 'UNH', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'CVS', 'LLY', 'AZN', 'AMGN',
+                # Consumer discretionary
+                'WMT', 'HD', 'NKE', 'MCD', 'SBUX', 'TJX', 'LOW', 'COST', 'MAR', 'LVS',
+                # Consumer staples
+                'PG', 'PEP', 'KO', 'MO', 'PM', 'CL', 'KMB', 'GIS', 'EL', 'CAG',
+                # Industrials
+                'BA', 'CAT', 'MMM', 'HON', 'ITW', 'GE', 'EMR', 'ETN', 'ROK', 'PCAR',
+                # Tech/Software
+                'V', 'MA', 'ADBE', 'CRM', 'INTC', 'AMD', 'CSCO', 'PYPL', 'INTU', 'ANET', 'NOW',
+                # Semiconductors
+                'QCOM', 'AVGO', 'MU', 'LRCX', 'ASML', 'TXN', 'MCHP', 'ON', 'KLAC',
+                # Communication services
+                'DIS', 'NFLX', 'CMCSA', 'T', 'VZ', 'CHTR', 'FOX', 'FOXE',
+                # Energy
+                'COP', 'CVX', 'XOM', 'SLB', 'EOG', 'FANG', 'KMI', 'OKE', 'MPC', 'PSX',
+                # Utilities
+                'SO', 'EXC', 'DUK', 'AEP', 'AWK', 'NEE', 'CMS', 'SRE', 'PEG', 'ED',
+                # Real estate
+                'PLD', 'EQIX', 'DLR', 'WELL', 'IRM', 'AVB', 'EQR', 'AMT', 'CCI',
+                # Materials
+                'MLM', 'HUN', 'APD', 'DOW', 'DD', 'ECL', 'LIN', 'PPG', 'ALB', 'NEM',
+                # Additional popular stocks
+                'TROW', 'GLD', 'SQ', 'SHOP', 'ZM', 'DDOG', 'CRWD', 'OKTA', 'TWLO',
+                'ROKU', 'SNAP', 'PINS', 'CME', 'ICE', 'EXPE', 'BKNG', 'TCOM', 'BSX', 'VRTX',
+                'ILMN', 'MTCH', 'SIRI', 'AXP', 'DFS', 'COF', 'ALLY', 'F', 'GM', 'TM', 'HMC',
+                'RIO', 'VALE', 'X', 'MT', 'CLF', 'FCX', 'AAL', 'DAL', 'UAL', 'LUV', 'ALK',
+                'AZO', 'ORLY', 'O', 'STWD', 'MAT', 'HAS', 'KMX', 'UAA', 'DECK', 'ROST',
+                'FIVE', 'PZZA', 'RH', 'LESL', 'CHWY', 'DNOW', 'POOL'
             ]
 
         total = len(sp500_symbols)

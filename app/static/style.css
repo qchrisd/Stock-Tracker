@@ -463,6 +463,17 @@ main {
     white-space: nowrap;
 }
 
+.stocks-table thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    transition: background-color 0.2s ease;
+}
+
+.stocks-table thead th.sortable:hover {
+    background-color: #34495e;
+}
+
 .stocks-table tbody tr {
     border-bottom: 1px solid #ecf0f1;
     transition: background-color 0.2s ease;

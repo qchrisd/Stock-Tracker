@@ -21,9 +21,9 @@
             <!-- Stock Symbols to Research -->
             <div class="filter-group">
                 <label for="symbols"><strong>Stock Symbols (comma-separated)</strong></label>
-                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search popular S&P 500 stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
+                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search popular US stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                    Enter stock ticker symbols separated by commas. Leave blank to search popular large-cap stocks.
+                    Enter stock ticker symbols separated by commas. Leave blank to search across 200+ popular US stocks across all sectors.
                 </div>
             </div>
 
@@ -76,26 +76,30 @@
 {% if suggestions %}
     <div class="stocks-table-container">
         <p style="margin-bottom: 15px; color: #7f8c8d;"><strong>{{ suggestions|length }}</strong> stock(s) matching your criteria</p>
-        <table class="stocks-table">
+        <table class="stocks-table" id="suggestionsTable">
             <thead>
                 <tr>
-                    <th>Symbol</th>
-                    <th>Company Name</th>
-                    <th>Sector</th>
-                    <th>Current Price</th>
-                    <th>52-Week Low</th>
-                    <th>52-Week High</th>
-                    <th>% From Low</th>
-                    <th>Forward P/E</th>
-                    <th>Trailing P/E</th>
-                    <th>Market Cap</th>
-                    <th>Div Yield</th>
+                    <th class="sortable" data-sort="symbol">Symbol</th>
+                    <th class="sortable" data-sort="name">Company Name</th>
+                    <th class="sortable" data-sort="sector">Sector</th>
+                    <th class="sortable" data-sort="price">Current Price</th>
+                    <th class="sortable" data-sort="low52">52-Week Low</th>
+                    <th class="sortable" data-sort="high52">52-Week High</th>
+                    <th class="sortable" data-sort="distance">% From Low</th>
+                    <th class="sortable" data-sort="pe_forward">Forward P/E</th>
+                    <th class="sortable" data-sort="pe_trailing">Trailing P/E</th>
+                    <th class="sortable" data-sort="marketcap">Market Cap</th>
+                    <th class="sortable" data-sort="dividend">Div Yield</th>
                     <th>Action</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="tableBody">
                 {% for stock in suggestions %}
-                    <tr>
+                    <tr data-symbol="{{ stock.symbol }}" data-name="{{ stock.name }}" data-sector="{{ stock.sector }}" 
+                        data-price="{{ stock.current_price }}" data-low52="{{ stock.week_52_low }}" 
+                        data-high52="{{ stock.week_52_high }}" data-distance="{{ stock.distance_from_low }}"
+                        data-pe_forward="{{ stock.forward_pe }}" data-pe_trailing="{{ stock.pe_ratio or 0 }}"
+                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}">
                         <td><strong>{{ stock.symbol }}</strong></td>
                         <td>{{ stock.name }}</td>
                         <td>{{ stock.sector }}</td>
@@ -124,7 +128,7 @@
                         <td>${{ "{:.1f}".format(stock.market_cap_billions) }}B</td>
                         <td>
                             {% if stock.dividend_yield %}
-                                {{ "{:.2f}".format(stock.dividend_yield * 100) }}%
+                                {{ "{:.2f}".format(stock.dividend_yield) }}%
                             {% else %}
                                 —
                             {% endif %}
@@ -195,6 +199,60 @@ function updateMaxDistance() {
 
 document.getElementById('distance_min_slider').addEventListener('input', updateDistanceDisplay);
 document.getElementById('distance_max_slider').addEventListener('input', updateMaxDistance);
+
+// Table sorting functionality
+let sortConfig = { column: null, direction: 'asc' };
+
+document.querySelectorAll('th.sortable').forEach(header => {
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+        const column = header.dataset.sort;
+        
+        // Toggle direction if same column clicked
+        if (sortConfig.column === column) {
+            sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortConfig.column = column;
+            sortConfig.direction = 'asc';
+        }
+        
+        // Update header styles
+        document.querySelectorAll('th.sortable').forEach(h => {
+            h.style.backgroundColor = '';
+            h.style.fontWeight = 'normal';
+        });
+        header.style.backgroundColor = '#e8f4f8';
+        header.style.fontWeight = 'bold';
+        
+        sortTable(column, sortConfig.direction);
+    });
+});
+
+function sortTable(column, direction) {
+    const tbody = document.getElementById('tableBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    rows.sort((a, b) => {
+        let aValue = a.dataset[column];
+        let bValue = b.dataset[column];
+        
+        // Convert to numbers for numeric columns
+        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend'].includes(column)) {
+            aValue = parseFloat(aValue) || 0;
+            bValue = parseFloat(bValue) || 0;
+            return direction === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+        
+        // String comparison for text columns
+        aValue = aValue || '';
+        bValue = bValue || '';
+        const comparison = aValue.localeCompare(bValue);
+        return direction === 'asc' ? comparison : -comparison;
+    });
+    
+    // Re-insert sorted rows
+    rows.forEach(row => tbody.appendChild(row));
+}
 </script>
 
 {% endblock %}
