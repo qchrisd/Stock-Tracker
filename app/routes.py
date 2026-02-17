@@ -1054,97 +1054,121 @@ def cache_stocks():
     Server-Sent Events endpoint that downloads and caches financial data for all SEC stocks.
     Sends progress updates to the client.
     """
+    from flask import current_app
+    import traceback
+    
+    # Get the app while we're still in the request context
+    app = current_app._get_current_object()
+    
     def generate_progress():
-        try:
-            # Get all SEC tickers
-            yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': 'Fetching SEC securities list...'})}\n\n"
-            
-            symbols = get_sec_stock_symbols()
-            total = len(symbols)
-            
-            if total == 0:
-                yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
-                return
-            
-            yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities...'})}\n\n"
-            
-            # Clear old cache
-            StockCache.query.delete()
-            db.session.commit()
-            
-            processed = 0
-            successful = 0
-            
-            for symbol in symbols:
-                processed += 1
-                try:
-                    # Fetch data with timeout
-                    ticker = yf.Ticker(symbol)
-                    
-                    # Fetch historical data (1 year)
-                    hist = ticker.history(period='1y')
-                    if len(hist) < 200:
-                        continue
-                    
-                    # Fetch info
-                    info = ticker.info
-                    
-                    # Calculate metrics
-                    current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
-                    price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
-                    price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
-                    
-                    if not current_price or not price_52w_low:
-                        continue
-                    
-                    distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
-                    
-                    market_cap = info.get('marketCap')
-                    market_cap_billions = (market_cap / 1_000_000_000) if market_cap else None
-                    
-                    forward_pe = info.get('forwardPE')
-                    trailing_pe = info.get('trailingPE')
-                    dividend_yield = info.get('dividendYield', 0)
-                    
-                    # Create cache entry
-                    cache_entry = StockCache(
-                        symbol=symbol,
-                        name=info.get('longName', symbol),
-                        sector=info.get('sector', 'N/A'),
-                        market_cap=market_cap,
-                        market_cap_billions=market_cap_billions,
-                        forward_pe=forward_pe,
-                        trailing_pe=trailing_pe,
-                        dividend_yield=dividend_yield,
-                        current_price=current_price,
-                        price_52w_low=price_52w_low,
-                        price_52w_high=price_52w_high,
-                        distance_from_low=distance_from_low
-                    )
-                    db.session.add(cache_entry)
-                    successful += 1
-                    
-                    # Commit every 50 stocks
-                    if successful % 50 == 0:
-                        db.session.commit()
-                        yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
+        # Create an app context for the generator execution
+        with app.app_context():
+            try:
+                # Get all SEC tickers
+                yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': 'Fetching SEC securities list...'})}\n\n"
                 
-                except Exception as e:
-                    # Skip stocks with errors
-                    continue
-            
-            # Final commit
-            db.session.commit()
-            
-            yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'successful': successful, 'message': f'Successfully cached {successful} stocks'})}\n\n"
-            
-        except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'message': f'Error during caching: {str(e)}'})}\n\n"
+                symbols = get_sec_stock_symbols()
+                total = len(symbols)
+                
+                if total == 0:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
+                    return
+                
+                yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities...'})}\n\n"
+                
+                # Clear old cache
+                StockCache.query.delete()
+                db.session.commit()
+                
+                processed = 0
+                successful = 0
+                batch = []  # Batch of entries to add
+                
+                # Limit to first 100 stocks for testing
+                test_symbols = symbols[:100]
+                
+                for symbol in test_symbols:
+                    processed += 1
+                    try:
+                        # Fetch data with timeout
+                        ticker = yf.Ticker(symbol)
+                        
+                        # Fetch historical data (1 year)
+                        hist = ticker.history(period='1y')
+                        if len(hist) < 200:
+                            continue
+                        
+                        # Fetch info
+                        info = ticker.info
+                        
+                        # Calculate metrics
+                        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
+                        price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
+                        price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
+                        
+                        if not current_price or not price_52w_low:
+                            continue
+                        
+                        distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
+                        
+                        market_cap = info.get('marketCap')
+                        market_cap_billions = (market_cap / 1_000_000_000) if market_cap else None
+                        
+                        forward_pe = info.get('forwardPE')
+                        trailing_pe = info.get('trailingPE')
+                        dividend_yield = info.get('dividendYield', 0)
+                        
+                        # Create cache entry
+                        cache_entry = StockCache(
+                            symbol=symbol,
+                            name=info.get('longName', symbol),
+                            sector=info.get('sector', 'N/A'),
+                            market_cap=market_cap,
+                            market_cap_billions=market_cap_billions,
+                            forward_pe=forward_pe,
+                            trailing_pe=trailing_pe,
+                            dividend_yield=dividend_yield,
+                            current_price=current_price,
+                            price_52w_low=price_52w_low,
+                            price_52w_high=price_52w_high,
+                            distance_from_low=distance_from_low
+                        )
+                        
+                        batch.append(cache_entry)
+                        successful += 1
+                        
+                        # Commit every 10 stocks
+                        if successful % 10 == 0:
+                            for entry in batch:
+                                db.session.add(entry)
+                            db.session.commit()
+                            batch = []
+                            yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': 100, 'successful': successful, 'percent': int((processed/100)*100)})}\n\n"
+                    
+                    except Exception as e:
+                        # Skip stocks with errors - don't print
+                        pass
+                
+                # Final commit for remaining batch
+                if batch:
+                    for entry in batch:
+                        db.session.add(entry)
+                    db.session.commit()
+                
+                yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': 100, 'successful': successful, 'message': f'Successfully cached {successful} stocks (test: first 100 only)'})}\n\n"
+                
+            except Exception as e:
+                error_msg = f"{str(e)}"
+                tb = traceback.format_exc()
+                print(f"Error in cache_stocks: {error_msg}")
+                print(tb)
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Error during caching: {error_msg}', 'traceback': tb})}\n\n"
     
     return Response(generate_progress(), mimetype='text/event-stream', headers={
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no'
     })
+
 
 
 def get_sec_stock_symbols():
