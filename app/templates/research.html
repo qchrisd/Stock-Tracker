@@ -216,13 +216,19 @@ document.querySelectorAll('th.sortable').forEach(header => {
             sortConfig.direction = 'asc';
         }
         
-        // Update header styles
+        // Update header arrows
         document.querySelectorAll('th.sortable').forEach(h => {
-            h.style.backgroundColor = '';
-            h.style.fontWeight = 'normal';
+            const arrow = h.querySelector('.sort-arrow');
+            if (arrow) {
+                arrow.remove();
+            }
         });
-        header.style.backgroundColor = '#e8f4f8';
-        header.style.fontWeight = 'bold';
+        
+        // Add arrow to current sorted column
+        const arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        arrow.textContent = sortConfig.direction === 'asc' ? ' ↑' : ' ↓';
+        header.appendChild(arrow);
         
         sortTable(column, sortConfig.direction);
     });

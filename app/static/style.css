@@ -474,6 +474,14 @@ main {
     background-color: #34495e;
 }
 
+.sort-arrow {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #3498db;
+}
+
 .stocks-table tbody tr {
     border-bottom: 1px solid #ecf0f1;
     transition: background-color 0.2s ease;
