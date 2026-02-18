@@ -128,9 +128,9 @@
                         <td><strong>{{ stock.symbol }}</strong></td>
                         <td>{{ stock.name }}</td>
                         <td>{{ stock.sector }}</td>
-                        <td>${{ "{:.2f}".format(stock.current_price) }}</td>
-                        <td>${{ "{:.2f}".format(stock.week_52_low) }}</td>
-                        <td>${{ "{:.2f}".format(stock.week_52_high) }}</td>
+                        <td>${{ "{:,.2f}".format(stock.current_price) }}</td>
+                        <td>${{ "{:,.2f}".format(stock.week_52_low) }}</td>
+                        <td>${{ "{:,.2f}".format(stock.week_52_high) }}</td>
                         <td>
                             <span class="percent-change {% if stock.distance_from_low >= 0 %}positive{% else %}negative{% endif %}">
                                 {{ "{:.2f}".format(stock.distance_from_low) }}%
@@ -150,7 +150,7 @@
                                 —
                             {% endif %}
                         </td>
-                        <td>${{ "{:.0f}".format(stock.market_cap_billions * 1000) }}M</td>
+                        <td>${{ "{:,.0f}".format(stock.market_cap_billions * 1000) }}M</td>
                         <td>
                             {% if stock.dividend_yield %}
                                 {{ "{:.2f}".format(stock.dividend_yield) }}%
@@ -159,10 +159,19 @@
                             {% endif %}
                         </td>
                         <td>
-                            <form method="GET" action="{{ url_for('main.add_stock', type='portfolio') }}" style="display: inline;">
-                                <input type="hidden" name="symbol" value="{{ stock.symbol }}">
-                                <button type="submit" class="btn btn-small btn-primary">Add to Portfolio</button>
-                            </form>
+                            <div class="action-dropdown">
+                                <button type="button" class="btn btn-small btn-secondary action-toggle" data-symbol="{{ stock.symbol }}">Actions</button>
+                                <div class="action-menu" id="actions-{{ stock.symbol }}" style="display: none;">
+                                    <form method="GET" action="{{ url_for('main.add_stock', type='portfolio') }}" style="display: inline;">
+                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
+                                        <button type="submit" class="btn btn-small btn-primary btn-block">Add to Portfolio</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.add_stock', type='watchlist') }}" style="display: inline;">
+                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
+                                        <button type="submit" class="btn btn-small btn-info btn-block">Add to Watchlist</button>
+                                    </form>
+                                </div>
+                            </div>
                         </td>
                     </tr>
                 {% endfor %}
@@ -174,7 +183,7 @@
         <h3>No Matching Stocks Found</h3>
         <p>No stocks currently match your filter criteria:</p>
         <ul style="text-align: left; display: inline-block; margin: 20px 0;">
-            <li>Market Cap: ${{ "{:.0f}".format(market_cap_min) }}M - ${{ "{:.0f}".format(market_cap_max) }}M</li>
+            <li>Market Cap: ${{ "{:,.0f}".format(market_cap_min) }}M - ${{ "{:,.0f}".format(market_cap_max) }}M</li>
             <li>Distance from 52-week low: {{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</li>
             <li>Forward P/E: ≤ {{ "{:.1f}".format(forward_pe_max) }}</li>
         </ul>
@@ -284,6 +293,38 @@ function sortTable(column, direction) {
     // Re-insert sorted rows
     rows.forEach(row => tbody.appendChild(row));
 }
+
+// Handle action menu toggles for research table
+document.addEventListener('DOMContentLoaded', function() {
+    const actionToggles = document.querySelectorAll('.action-toggle');
+    
+    actionToggles.forEach(toggle => {
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const symbol = this.getAttribute('data-symbol');
+            const menu = document.getElementById(`actions-${symbol}`);
+            
+            // Close other open menus
+            document.querySelectorAll('.action-menu').forEach(m => {
+                if (m.id !== `actions-${symbol}`) {
+                    m.style.display = 'none';
+                }
+            });
+            
+            // Toggle current menu
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+    });
+    
+    // Close menus when clicking outside
+    document.querySelectorAll('.action-menu').forEach(menu => {
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.action-dropdown')) {
+                menu.style.display = 'none';
+            }
+        });
+    });
+});
 
 // Cache download and progress tracking
 function startCacheDownload() {
