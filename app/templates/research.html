@@ -182,14 +182,14 @@
                                 <div style="margin-bottom: 20px;">
                                     <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Financial Ratios & Metrics</h5>
                                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 13px;">
-                                        <div><strong>Size in Sales:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.size_in_sales) if stock.size_in_sales else 'N/A' }}%</span></div>
-                                        <div><strong>Current Assets ÷ 2x Liabilities:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.current_assets_to_2x_liabilities) if stock.current_assets_to_2x_liabilities else 'N/A' }}%</span></div>
-                                        <div><strong>Net Current Assets ÷ LT Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.net_current_assets_to_ltdebt) if stock.net_current_assets_to_ltdebt else 'N/A' }}%</span></div>
-                                        <div><strong>2x Equity ÷ Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.equity_to_debt) if stock.equity_to_debt else 'N/A' }}%</span></div>
-                                        <div><strong>Size in Assets:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.size_in_assets) if stock.size_in_assets else 'N/A' }}%</span></div>
-                                        <div><strong>Earnings Stability:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_stability) if stock.earnings_stability else 'N/A' }}%</span></div>
-                                        <div><strong>Dividend Record:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.dividend_record) if stock.dividend_record else 'N/A' }}%</span></div>
-                                        <div><strong>Earnings Growth:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_growth) if stock.earnings_growth else 'N/A' }}%</span></div>
+                                        <div><strong>Size in Sales:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.size_in_sales) if stock.size_in_sales is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Current Assets ÷ 2x Liabilities:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.current_assets_to_2x_liabilities) if stock.current_assets_to_2x_liabilities is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Net Current Assets ÷ LT Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.net_current_assets_to_ltdebt) if stock.net_current_assets_to_ltdebt is not none else 'N/A' }}%</span></div>
+                                        <div><strong>2x Equity ÷ Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.equity_to_debt) if stock.equity_to_debt is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Size in Assets:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.size_in_assets) if stock.size_in_assets is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Stability:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_stability) if stock.earnings_stability is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Dividend Record:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.dividend_record) if stock.dividend_record is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Growth:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.earnings_growth) if stock.earnings_growth is not none else 'N/A' }}%</span></div>
                                     </div>
                                 </div>
 
@@ -197,9 +197,9 @@
                                 <div>
                                     <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
                                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
-                                        <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent else 'N/A' }}%</span></div>
-                                        <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net else 'N/A' }}%</span></div>
-                                        <div><strong>Overall Rating Score:</strong><br><span style="color: #3498db; font-weight: bold; font-size: 14px;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score else 'N/A' }}</span></div>
+                                        <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent is not none else 'N/A' }}%</span></div>
+                                        <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Overall Rating Score:</strong><br><span style="color: #3498db; font-weight: bold; font-size: 14px;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score is not none else 'N/A' }}</span></div>
                                     </div>
                                 </div>
                             </div>
