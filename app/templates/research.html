@@ -57,10 +57,10 @@
                 <label for="market_cap_min"><strong>Market Cap Range (Millions)</strong></label>
                 <div class="range-inputs">
                     <input type="number" id="market_cap_min" name="market_cap_min" min="0" step="1" 
-                           value="{{ market_cap_min }}" placeholder="Min">
+                           value="{{ "%d" | format(market_cap_min | int) }}" placeholder="Min">
                     <span>to</span>
                     <input type="number" id="market_cap_max" name="market_cap_max" min="0" step="1" 
-                           value="{{ market_cap_max }}" placeholder="Max">
+                           value="{{ "%d" | format(market_cap_max | int) }}" placeholder="Max">
                 </div>
             </div>
 
@@ -229,8 +229,8 @@
 
 <script>
 function resetFilters() {
-    document.getElementById('market_cap_min').value = 100;
-    document.getElementById('market_cap_max').value = 5000000;
+    document.getElementById('market_cap_min').value = 0;
+    document.getElementById('market_cap_max').value = 10000000;
     document.getElementById('distance_min_slider').value = 0;
     document.getElementById('distance_max_slider').value = 15;
     document.getElementById('forward_pe_max').value = 40;
@@ -503,7 +503,7 @@ function startCacheDownload() {
 }
 
 function resetFilters() {
-    document.getElementById('market_cap_min').value = '100';
+    document.getElementById('market_cap_min').value = '0';
     document.getElementById('market_cap_max').value = '10000000';
     document.getElementById('distance_min_slider').value = '0';
     document.getElementById('distance_max_slider').value = '100';

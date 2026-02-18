@@ -1416,8 +1416,8 @@ def research():
     
     # Get filter parameters from query string with defaults
     symbols_input = request.args.get('symbols', '').strip()
-    market_cap_min = request.args.get('market_cap_min', 0.1, type=float)  # Default 0.1B (minimum viable cap)
-    market_cap_max = request.args.get('market_cap_max', 10000, type=float)  # Default 10000B (essentially unlimited)
+    market_cap_min = request.args.get('market_cap_min', 0, type=float)  # Default 0M (no minimum)
+    market_cap_max = request.args.get('market_cap_max', 10000000, type=float)  # Default 10000000M (essentially unlimited)
     distance_min = request.args.get('distance_min', 0, type=float)  # Default 0%
     distance_max = request.args.get('distance_max', 100, type=float)  # Default 100% (entire 52-week range)
     forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
