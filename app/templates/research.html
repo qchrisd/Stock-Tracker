@@ -26,7 +26,7 @@
         <span id="progress-status">Initializing...</span>
     </div>
     <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
-        <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+        <div id="progfailed ress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
             0%
         </div>
     </div>
@@ -54,12 +54,12 @@
 
             <!-- Market Cap Range -->
             <div class="filter-group">
-                <label for="market_cap_min"><strong>Market Cap Range (Billions)</strong></label>
+                <label for="market_cap_min"><strong>Market Cap Range (Millions)</strong></label>
                 <div class="range-inputs">
-                    <input type="number" id="market_cap_min" name="market_cap_min" min="0" step="10" 
+                    <input type="number" id="market_cap_min" name="market_cap_min" min="0" step="1" 
                            value="{{ market_cap_min }}" placeholder="Min">
                     <span>to</span>
-                    <input type="number" id="market_cap_max" name="market_cap_max" min="0" step="10" 
+                    <input type="number" id="market_cap_max" name="market_cap_max" min="0" step="1" 
                            value="{{ market_cap_max }}" placeholder="Max">
                 </div>
             </div>
@@ -150,7 +150,7 @@
                                 —
                             {% endif %}
                         </td>
-                        <td>${{ "{:.1f}".format(stock.market_cap_billions) }}B</td>
+                        <td>${{ "{:.0f}".format(stock.market_cap_billions * 1000) }}M</td>
                         <td>
                             {% if stock.dividend_yield %}
                                 {{ "{:.2f}".format(stock.dividend_yield) }}%
@@ -174,7 +174,7 @@
         <h3>No Matching Stocks Found</h3>
         <p>No stocks currently match your filter criteria:</p>
         <ul style="text-align: left; display: inline-block; margin: 20px 0;">
-            <li>Market Cap: ${{ "{:.0f}".format(market_cap_min) }}B - ${{ "{:.0f}".format(market_cap_max) }}B</li>
+            <li>Market Cap: ${{ "{:.0f}".format(market_cap_min) }}M - ${{ "{:.0f}".format(market_cap_max) }}M</li>
             <li>Distance from 52-week low: {{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</li>
             <li>Forward P/E: ≤ {{ "{:.1f}".format(forward_pe_max) }}</li>
         </ul>
@@ -184,8 +184,8 @@
 
 <script>
 function resetFilters() {
-    document.getElementById('market_cap_min').value = 10;
-    document.getElementById('market_cap_max').value = 5000;
+    document.getElementById('market_cap_min').value = 100;
+    document.getElementById('market_cap_max').value = 5000000;
     document.getElementById('distance_min_slider').value = 0;
     document.getElementById('distance_max_slider').value = 15;
     document.getElementById('forward_pe_max').value = 40;
@@ -368,8 +368,8 @@ function startCacheDownload() {
 }
 
 function resetFilters() {
-    document.getElementById('market_cap_min').value = '0.1';
-    document.getElementById('market_cap_max').value = '10000';
+    document.getElementById('market_cap_min').value = '100';
+    document.getElementById('market_cap_max').value = '10000000';
     document.getElementById('distance_min_slider').value = '0';
     document.getElementById('distance_max_slider').value = '100';
     document.getElementById('distance_min').value = '0';
