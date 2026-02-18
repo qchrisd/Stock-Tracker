@@ -26,7 +26,7 @@
         <span id="progress-status">Initializing...</span>
     </div>
     <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
-        <div id="progfailed ress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+        <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
             0%
         </div>
     </div>
@@ -494,8 +494,9 @@ function startCacheDownload() {
     };
     
     eventSource.onerror = function(event) {
+        console.error('EventSource error:', event);
         progressStatus.textContent = '✗ Connection error';
-        progressDetails.textContent = 'Failed to connect to server';
+        progressDetails.textContent = 'The connection was lost. This often happens when the cache download is taking too long. Check the browser console for details.';
         eventSource.close();
         downloadBtn.disabled = false;
         downloadBtn.textContent = '📥 Download Stock Data';

@@ -1217,13 +1217,19 @@ def cache_stocks():
                         # Fetch data with timeout
                         ticker = yf.Ticker(symbol)
                         
-                        # Fetch historical data (1 year)
-                        hist = ticker.history(period='1y')
-                        if len(hist) < 200:
+                        try:
+                            # Fetch historical data (1 year)
+                            hist = ticker.history(period='1y', timeout=5)
+                            if len(hist) < 200:
+                                continue
+                        except Exception:
                             continue
                         
-                        # Fetch info
-                        info = ticker.info
+                        try:
+                            # Fetch info
+                            info = ticker.info
+                        except Exception:
+                            continue
                         
                         # Calculate metrics
                         current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
@@ -1244,8 +1250,13 @@ def cache_stocks():
                         eps = info.get('trailingEps')
                         book_value_per_share = info.get('bookValue')
                         
-                        # Fetch all Graham metrics from GrahamValue
-                        graham_data = get_graham_metrics_from_grahamvalue(symbol)
+                        # Fetch Graham metrics from GrahamValue
+                        graham_data = {}
+                        try:
+                            graham_data = get_graham_metrics_from_grahamvalue(symbol)
+                        except Exception:
+                            graham_data = {}
+                        
                         graham_number = graham_data.get('graham_number') if graham_data else None
                         rating_score = graham_data.get('rating_score') if graham_data else None
                         
