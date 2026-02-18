@@ -122,7 +122,7 @@
                         data-price="{{ stock.current_price }}" data-low52="{{ stock.week_52_low }}" 
                         data-high52="{{ stock.week_52_high }}" data-distance="{{ stock.distance_from_low }}"
                         data-pe_forward="{{ stock.forward_pe }}"
-                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}">
+                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}" data-rating="{{ stock.rating_score or 0 }}">
                         <td class="toggle-cell" style="cursor: pointer;">
                             <span class="toggle-arrow">▶</span>
                         </td>
