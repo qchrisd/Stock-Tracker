@@ -176,7 +176,7 @@
                         <td></td>
                         <td colspan="11">
                             <div style="padding: 15px; background-color: #f9f9f9; border-left: 4px solid #3498db;">
-                                <h4 style="margin: 0 0 15px 0; color: #333;">Graham Value Analysis (Rating: {{ "{:.1f}".format(stock.rating_score) if stock.rating_score else 'N/A' }} / 5)</h4>
+                                <h4 style="margin: 0 0 15px 0; color: #333;">Graham Value Analysis</h4>
                                 
                                 <!-- Financial Ratios Section -->
                                 <div style="margin-bottom: 20px;">
@@ -194,31 +194,12 @@
                                 </div>
 
                                 <!-- Graham Values Section -->
-                                <div style="margin-bottom: 20px;">
+                                <div>
                                     <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
                                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
                                         <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent else 'N/A' }}%</span></div>
                                         <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net else 'N/A' }}%</span></div>
                                         <div><strong>Overall Rating Score:</strong><br><span style="color: #3498db; font-weight: bold; font-size: 14px;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score else 'N/A' }}</span></div>
-                                    </div>
-                                </div>
-
-                                <!-- Fundamentals Section -->
-                                <div>
-                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Per Share Fundamentals</h5>
-                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
-                                        <div>
-                                            <strong>EPS (Trailing):</strong><br>
-                                            {% if stock.eps %}<span style="font-weight: bold;">${{ "{:.2f}".format(stock.eps) }}</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
-                                        </div>
-                                        <div>
-                                            <strong>Book Value Per Share:</strong><br>
-                                            {% if stock.book_value_per_share %}<span style="font-weight: bold;">${{ "{:.2f}".format(stock.book_value_per_share) }}</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
-                                        </div>
-                                        <div>
-                                            <strong>Graham Number:</strong><br>
-                                            {% if stock.graham_number %}<span style="color: #2ecc71; font-weight: bold; font-size: 14px;">${{ "{:.2f}".format(stock.graham_number) }}</span><br><span style="font-size: 11px; color: #7f8c8d;">Current: ${{ "{:.2f}".format(stock.current_price) }} ({{ "{:.1f}".format((stock.current_price / stock.graham_number - 1) * 100) }}%)</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
-                                        </div>
                                     </div>
                                 </div>
                             </div>
