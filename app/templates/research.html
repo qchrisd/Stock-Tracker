@@ -108,13 +108,11 @@
                     <th class="sortable" data-sort="symbol">Symbol</th>
                     <th class="sortable" data-sort="name">Company Name</th>
                     <th class="sortable" data-sort="sector">Sector</th>
-                    <th class="sortable" data-sort="price">Current Price</th>
-                    <th class="sortable" data-sort="low52">52-Week Low</th>
-                    <th class="sortable" data-sort="high52">52-Week High</th>
                     <th class="sortable" data-sort="distance">% From Low</th>
                     <th class="sortable" data-sort="pe_forward">Forward P/E</th>
                     <th class="sortable" data-sort="marketcap">Market Cap</th>
                     <th class="sortable" data-sort="dividend">Div Yield</th>
+                    <th class="sortable" data-sort="rating">Rating Score</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -131,9 +129,6 @@
                         <td><strong>{{ stock.symbol }}</strong></td>
                         <td>{{ stock.name }}</td>
                         <td>{{ stock.sector }}</td>
-                        <td>${{ "{:,.2f}".format(stock.current_price) }}</td>
-                        <td>${{ "{:,.2f}".format(stock.week_52_low) }}</td>
-                        <td>${{ "{:,.2f}".format(stock.week_52_high) }}</td>
                         <td>
                             <span class="percent-change {% if stock.distance_from_low >= 0 %}positive{% else %}negative{% endif %}">
                                 {{ "{:.2f}".format(stock.distance_from_low) }}%
@@ -154,6 +149,7 @@
                                 —
                             {% endif %}
                         </td>
+                        <td style="color: #3498db; font-weight: bold;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score is not none else 'N/A' }}</td>
                         <td>
                             <div class="action-dropdown">
                                 <button type="button" class="btn btn-small btn-secondary action-toggle" data-symbol="{{ stock.symbol }}">Actions</button>
@@ -193,13 +189,22 @@
                                     </div>
                                 </div>
 
+                                <!-- Price Information Section -->
+                                <div style="margin-bottom: 20px;">
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Price Information</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Current Price:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.current_price) if stock.current_price is not none else 'N/A' }}</span></div>
+                                        <div><strong>52-Week Low:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.week_52_low) if stock.week_52_low is not none else 'N/A' }}</span></div>
+                                        <div><strong>52-Week High:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.week_52_high) if stock.week_52_high is not none else 'N/A' }}</span></div>
+                                    </div>
+                                </div>
+
                                 <!-- Graham Values Section -->
                                 <div>
                                     <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
-                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 13px;">
                                         <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent is not none else 'N/A' }}%</span></div>
                                         <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net is not none else 'N/A' }}%</span></div>
-                                        <div><strong>Overall Rating Score:</strong><br><span style="color: #3498db; font-weight: bold; font-size: 14px;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score is not none else 'N/A' }}</span></div>
                                     </div>
                                 </div>
                             </div>
