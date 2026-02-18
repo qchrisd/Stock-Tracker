@@ -306,14 +306,30 @@ document.querySelectorAll('th.sortable').forEach(header => {
 
 function sortTable(column, direction) {
     const tbody = document.getElementById('tableBody');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const allRows = Array.from(tbody.querySelectorAll('tr'));
     
-    rows.sort((a, b) => {
+    // Separate stock rows from detail rows
+    const stockRows = allRows.filter(row => row.classList.contains('stock-row'));
+    const detailRowsMap = {};
+    
+    // Map detail rows to their parent stock rows
+    allRows.forEach(row => {
+        if (row.classList.contains('detail-row')) {
+            const parentId = row.dataset.parent;
+            if (!detailRowsMap[parentId]) {
+                detailRowsMap[parentId] = [];
+            }
+            detailRowsMap[parentId].push(row);
+        }
+    });
+    
+    // Sort only the stock rows
+    stockRows.sort((a, b) => {
         let aValue = a.dataset[column];
         let bValue = b.dataset[column];
         
         // Convert to numbers for numeric columns
-        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend'].includes(column)) {
+        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend', 'rating'].includes(column)) {
             aValue = parseFloat(aValue) || 0;
             bValue = parseFloat(bValue) || 0;
             return direction === 'asc' ? aValue - bValue : bValue - aValue;
@@ -326,8 +342,18 @@ function sortTable(column, direction) {
         return direction === 'asc' ? comparison : -comparison;
     });
     
-    // Re-insert sorted rows
-    rows.forEach(row => tbody.appendChild(row));
+    // Re-insert sorted rows with their detail rows
+    stockRows.forEach(stockRow => {
+        tbody.appendChild(stockRow);
+        
+        // Append associated detail rows right after the stock row
+        const toggleId = stockRow.getAttribute('data-toggle');
+        if (detailRowsMap[toggleId]) {
+            detailRowsMap[toggleId].forEach(detailRow => {
+                tbody.appendChild(detailRow);
+            });
+        }
+    });
 }
 
 // Handle row expansion for Graham Number details
