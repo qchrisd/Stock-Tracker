@@ -104,6 +104,7 @@
         <table class="stocks-table" id="suggestionsTable">
             <thead>
                 <tr>
+                    <th></th>
                     <th class="sortable" data-sort="symbol">Symbol</th>
                     <th class="sortable" data-sort="name">Company Name</th>
                     <th class="sortable" data-sort="sector">Sector</th>
@@ -119,11 +120,14 @@
             </thead>
             <tbody id="tableBody">
                 {% for stock in suggestions %}
-                    <tr data-symbol="{{ stock.symbol }}" data-name="{{ stock.name }}" data-sector="{{ stock.sector }}" 
+                    <tr class="stock-row" data-toggle="stock-{{ loop.index }}" data-symbol="{{ stock.symbol }}" data-name="{{ stock.name }}" data-sector="{{ stock.sector }}" 
                         data-price="{{ stock.current_price }}" data-low52="{{ stock.week_52_low }}" 
                         data-high52="{{ stock.week_52_high }}" data-distance="{{ stock.distance_from_low }}"
                         data-pe_forward="{{ stock.forward_pe }}"
                         data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}">
+                        <td class="toggle-cell" style="cursor: pointer;">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
                         <td><strong>{{ stock.symbol }}</strong></td>
                         <td>{{ stock.name }}</td>
                         <td>{{ stock.sector }}</td>
@@ -162,6 +166,60 @@
                                         <input type="hidden" name="symbol" value="{{ stock.symbol }}">
                                         <button type="submit" class="btn btn-small btn-info btn-block">Add to Watchlist</button>
                                     </form>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Graham Number Detail Row (hidden by default) -->
+                    <tr class="detail-row" style="display: none;" data-parent="stock-{{ loop.index }}">
+                        <td></td>
+                        <td colspan="11">
+                            <div style="padding: 15px; background-color: #f9f9f9; border-left: 4px solid #3498db;">
+                                <h4 style="margin: 0 0 15px 0; color: #333;">Graham Value Analysis (Rating: {{ "{:.1f}".format(stock.rating_score) if stock.rating_score else 'N/A' }} / 5)</h4>
+                                
+                                <!-- Financial Ratios Section -->
+                                <div style="margin-bottom: 20px;">
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Financial Ratios & Metrics</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Size in Sales:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.size_in_sales) if stock.size_in_sales else 'N/A' }}%</span></div>
+                                        <div><strong>Current Assets ÷ 2x Liabilities:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.current_assets_to_2x_liabilities) if stock.current_assets_to_2x_liabilities else 'N/A' }}%</span></div>
+                                        <div><strong>Net Current Assets ÷ LT Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.net_current_assets_to_ltdebt) if stock.net_current_assets_to_ltdebt else 'N/A' }}%</span></div>
+                                        <div><strong>2x Equity ÷ Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.equity_to_debt) if stock.equity_to_debt else 'N/A' }}%</span></div>
+                                        <div><strong>Size in Assets:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.size_in_assets) if stock.size_in_assets else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Stability:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_stability) if stock.earnings_stability else 'N/A' }}%</span></div>
+                                        <div><strong>Dividend Record:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.dividend_record) if stock.dividend_record else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Growth:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_growth) if stock.earnings_growth else 'N/A' }}%</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- Graham Values Section -->
+                                <div style="margin-bottom: 20px;">
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent else 'N/A' }}%</span></div>
+                                        <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net else 'N/A' }}%</span></div>
+                                        <div><strong>Overall Rating Score:</strong><br><span style="color: #3498db; font-weight: bold; font-size: 14px;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score else 'N/A' }}</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- Fundamentals Section -->
+                                <div>
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Per Share Fundamentals</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                                        <div>
+                                            <strong>EPS (Trailing):</strong><br>
+                                            {% if stock.eps %}<span style="font-weight: bold;">${{ "{:.2f}".format(stock.eps) }}</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
+                                        </div>
+                                        <div>
+                                            <strong>Book Value Per Share:</strong><br>
+                                            {% if stock.book_value_per_share %}<span style="font-weight: bold;">${{ "{:.2f}".format(stock.book_value_per_share) }}</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
+                                        </div>
+                                        <div>
+                                            <strong>Graham Number:</strong><br>
+                                            {% if stock.graham_number %}<span style="color: #2ecc71; font-weight: bold; font-size: 14px;">${{ "{:.2f}".format(stock.graham_number) }}</span><br><span style="font-size: 11px; color: #7f8c8d;">Current: ${{ "{:.2f}".format(stock.current_price) }} ({{ "{:.1f}".format((stock.current_price / stock.graham_number - 1) * 100) }}%)</span>{% else %}<span style="color: #999;">N/A</span>{% endif %}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </td>
@@ -284,6 +342,38 @@ function sortTable(column, direction) {
     
     // Re-insert sorted rows
     rows.forEach(row => tbody.appendChild(row));
+}
+
+// Handle row expansion for Graham Number details
+document.querySelectorAll('tr.stock-row').forEach(row => {
+    row.addEventListener('click', function(e) {
+        // Don't toggle if clicking on action buttons
+        if (e.target.closest('.action-dropdown') || e.target.closest('form')) {
+            return;
+        }
+        toggleStockDetails(this);
+    });
+});
+
+function toggleStockDetails(stockRow) {
+    const toggleId = stockRow.getAttribute('data-toggle');
+    const detailRows = document.querySelectorAll(`.detail-row[data-parent="${toggleId}"]`);
+    const toggleArrow = stockRow.querySelector('.toggle-arrow');
+    
+    // Toggle visibility
+    const isHidden = detailRows[0] && detailRows[0].style.display === 'none';
+    detailRows.forEach(row => {
+        row.style.display = isHidden ? 'table-row' : 'none';
+    });
+    
+    // Rotate arrow
+    if (toggleArrow) {
+        toggleArrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+        toggleArrow.style.transition = 'transform 0.2s ease';
+    }
+    
+    // Toggle active class for styling
+    stockRow.classList.toggle('expanded', isHidden);
 }
 
 // Handle action menu toggles for research table

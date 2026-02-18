@@ -4,8 +4,135 @@ import yfinance as yf
 import requests
 import json
 from app.models import db, Stock, Transaction, Account, StockCache
+from bs4 import BeautifulSoup
+import re
 
 main_bp = Blueprint('main', __name__)
+
+
+def get_graham_metrics_from_grahamvalue(symbol):
+    """
+    Scrape comprehensive Graham metrics from grahamvalue.com
+    Returns dict with all Graham rating metrics, or empty dict if scraping fails
+    """
+    try:
+        url = f"https://www.grahamvalue.com/stock/{symbol.lower()}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        # Increase timeout to 30 seconds
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Get all text from the page
+        full_text = soup.get_text()
+        
+        graham_data = {
+            'graham_number': None,
+            'defensive_price': None,
+            'enterprising_price': None,
+            'ncav_price': None,
+            'rating_score': None,
+            'size_in_sales': None,
+            'current_assets_to_2x_liabilities': None,
+            'net_current_assets_to_ltdebt': None,
+            'earnings_stability': None,
+            'dividend_record': None,
+            'earnings_growth': None,
+            'graham_number_percent': None,
+            'ncav_or_net_net': None,
+            'equity_to_debt': None,
+            'size_in_assets': None
+        }
+        
+        # Extract Rating Score - look for "Rating Score = X.X" pattern
+        rating_match = re.search(r'Rating Score\s*=\s*([\d.]+)', full_text)
+        if rating_match:
+            graham_data['rating_score'] = float(rating_match.group(1))
+        
+        # Extract Defensive Price (Graham №)
+        defensive_match = re.search(r'Defensive Price[^:]*?\(Graham[^:]*?\):\s+([\d.]+)', full_text)
+        if defensive_match:
+            graham_data['defensive_price'] = float(defensive_match.group(1))
+            graham_data['graham_number'] = float(defensive_match.group(1))
+        
+        # Extract Enterprising Price (Serenity №)
+        enterprising_match = re.search(r'Enterprising Price[^:]*?\(Serenity[^:]*?\):\s+([\d.]+)', full_text)
+        if enterprising_match:
+            graham_data['enterprising_price'] = float(enterprising_match.group(1))
+        
+        # Extract NCAV Price (Net-Net)
+        ncav_match = re.search(r'NCAV Price[^:]*?\(Net-Net\):\s+([\d.]+)', full_text)
+        if ncav_match:
+            graham_data['ncav_price'] = float(ncav_match.group(1))
+        
+        # Extract Graham Ratings - look for the pattern with percentage
+        size_sales_match = re.search(r'Size in Sales.*?:\s+([\d,]+\.[\d]+)%', full_text)
+        if size_sales_match:
+            # Remove commas and convert to float
+            graham_data['size_in_sales'] = float(size_sales_match.group(1).replace(',', ''))
+        
+        current_assets_match = re.search(r'Current Assets\s*÷\s*\[2\s*x\s*Current Liabilities\]\s*:\s+([\d.]+)%', full_text)
+        if current_assets_match:
+            graham_data['current_assets_to_2x_liabilities'] = float(current_assets_match.group(1))
+        
+        net_current_match = re.search(r'Net Current Assets\s*÷\s*Long-Term Debt\s*:\s+([\d.]+)%', full_text)
+        if net_current_match:
+            graham_data['net_current_assets_to_ltdebt'] = float(net_current_match.group(1))
+        
+        earnings_stability_match = re.search(r'Earnings Stability\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if earnings_stability_match:
+            graham_data['earnings_stability'] = float(earnings_stability_match.group(1))
+        
+        dividend_record_match = re.search(r'Dividend Record\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if dividend_record_match:
+            graham_data['dividend_record'] = float(dividend_record_match.group(1))
+        
+        earnings_growth_match = re.search(r'Earnings Growth\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if earnings_growth_match:
+            graham_data['earnings_growth'] = float(earnings_growth_match.group(1))
+        
+        graham_number_pct_match = re.search(r'Graham Number\(%\)\s*:\s+([\d.]+)%', full_text)
+        if graham_number_pct_match:
+            graham_data['graham_number_percent'] = float(graham_number_pct_match.group(1))
+        
+        ncav_pct_match = re.search(r'NCAV or Net-Net\(%\)\s*:\s+([\d.]+)%', full_text)
+        if ncav_pct_match:
+            graham_data['ncav_or_net_net'] = float(ncav_pct_match.group(1))
+        
+        equity_debt_match = re.search(r'\[2\s*x\s*Equity\]\s*÷\s*Debt\s*:\s+([\d.]+)%', full_text)
+        if equity_debt_match:
+            graham_data['equity_to_debt'] = float(equity_debt_match.group(1))
+        
+        size_assets_match = re.search(r'Size in Assets.*?:\s+([\d,]+\.[\d]+)%', full_text)
+        if size_assets_match:
+            # Remove commas and convert to float
+            graham_data['size_in_assets'] = float(size_assets_match.group(1).replace(',', ''))
+        
+        return graham_data
+        
+    except Exception as e:
+        print(f"Error scraping Graham data for {symbol}: {str(e)}")
+        # Return empty dict on error instead of None
+        return {
+            'graham_number': None,
+            'defensive_price': None,
+            'enterprising_price': None,
+            'ncav_price': None,
+            'rating_score': None,
+            'size_in_sales': None,
+            'current_assets_to_2x_liabilities': None,
+            'net_current_assets_to_ltdebt': None,
+            'earnings_stability': None,
+            'dividend_record': None,
+            'earnings_growth': None,
+            'graham_number_percent': None,
+            'ncav_or_net_net': None,
+            'equity_to_debt': None,
+            'size_in_assets': None
+        }
 
 
 @main_bp.route('/')
@@ -1114,6 +1241,13 @@ def cache_stocks():
                         forward_pe = info.get('forwardPE')
                         trailing_pe = info.get('trailingPE')
                         dividend_yield = info.get('dividendYield', 0)
+                        eps = info.get('trailingEps')
+                        book_value_per_share = info.get('bookValue')
+                        
+                        # Fetch all Graham metrics from GrahamValue
+                        graham_data = get_graham_metrics_from_grahamvalue(symbol)
+                        graham_number = graham_data.get('graham_number') if graham_data else None
+                        rating_score = graham_data.get('rating_score') if graham_data else None
                         
                         # Create cache entry
                         cache_entry = StockCache(
@@ -1128,7 +1262,21 @@ def cache_stocks():
                             current_price=current_price,
                             price_52w_low=price_52w_low,
                             price_52w_high=price_52w_high,
-                            distance_from_low=distance_from_low
+                            distance_from_low=distance_from_low,
+                            eps=eps,
+                            book_value_per_share=book_value_per_share,
+                            graham_number=graham_number,
+                            rating_score=rating_score,
+                            size_in_sales=graham_data.get('size_in_sales') if graham_data else None,
+                            current_assets_to_2x_liabilities=graham_data.get('current_assets_to_2x_liabilities') if graham_data else None,
+                            net_current_assets_to_ltdebt=graham_data.get('net_current_assets_to_ltdebt') if graham_data else None,
+                            earnings_stability=graham_data.get('earnings_stability') if graham_data else None,
+                            dividend_record=graham_data.get('dividend_record') if graham_data else None,
+                            earnings_growth=graham_data.get('earnings_growth') if graham_data else None,
+                            graham_number_percent=graham_data.get('graham_number_percent') if graham_data else None,
+                            ncav_or_net_net=graham_data.get('ncav_or_net_net') if graham_data else None,
+                            equity_to_debt=graham_data.get('equity_to_debt') if graham_data else None,
+                            size_in_assets=graham_data.get('size_in_assets') if graham_data else None
                         )
                         
                         batch.append(cache_entry)
@@ -1309,6 +1457,17 @@ def research():
                         forward_pe <= forward_pe_max and
                         market_cap_min <= market_cap_billions <= market_cap_max
                     ):
+                        # Calculate Graham Number
+                        eps = info.get('trailingEps')
+                        book_value_per_share = info.get('bookValue')
+                        graham_number = None
+                        if eps and book_value_per_share and eps > 0 and book_value_per_share > 0:
+                            import math
+                            graham_number = math.sqrt(22.5 * eps * book_value_per_share)
+                        
+                        # Fetch Graham metrics from GrahamValue
+                        graham_metrics = get_graham_metrics_from_grahamvalue(symbol) or {}
+                        
                         suggestions.append({
                             'symbol': symbol,
                             'name': info.get('longName', symbol),
@@ -1321,7 +1480,21 @@ def research():
                             'market_cap_billions': market_cap_billions,
                             'sector': info.get('sector', 'N/A'),
                             'dividend_yield': info.get('dividendYield', 0),
-                            'pe_ratio': info.get('trailingPE')
+                            'pe_ratio': info.get('trailingPE'),
+                            'eps': eps,
+                            'book_value_per_share': book_value_per_share,
+                            'graham_number': graham_number,
+                            'rating_score': graham_metrics.get('rating_score'),
+                            'size_in_sales': graham_metrics.get('size_in_sales'),
+                            'current_assets_to_2x_liabilities': graham_metrics.get('current_assets_to_2x_liabilities'),
+                            'net_current_assets_to_ltdebt': graham_metrics.get('net_current_assets_to_ltdebt'),
+                            'earnings_stability': graham_metrics.get('earnings_stability'),
+                            'dividend_record': graham_metrics.get('dividend_record'),
+                            'earnings_growth': graham_metrics.get('earnings_growth'),
+                            'graham_number_percent': graham_metrics.get('graham_number_percent'),
+                            'ncav_or_net_net': graham_metrics.get('ncav_or_net_net'),
+                            'equity_to_debt': graham_metrics.get('equity_to_debt'),
+                            'size_in_assets': graham_metrics.get('size_in_assets')
                         })
                 except Exception as e:
                     continue
@@ -1356,7 +1529,21 @@ def research():
                     'market_cap_billions': stock.market_cap_billions,
                     'sector': stock.sector,
                     'dividend_yield': stock.dividend_yield,
-                    'pe_ratio': stock.trailing_pe
+                    'pe_ratio': stock.trailing_pe,
+                    'eps': stock.eps,
+                    'book_value_per_share': stock.book_value_per_share,
+                    'graham_number': stock.graham_number,
+                    'rating_score': stock.rating_score,
+                    'size_in_sales': stock.size_in_sales,
+                    'current_assets_to_2x_liabilities': stock.current_assets_to_2x_liabilities,
+                    'net_current_assets_to_ltdebt': stock.net_current_assets_to_ltdebt,
+                    'earnings_stability': stock.earnings_stability,
+                    'dividend_record': stock.dividend_record,
+                    'earnings_growth': stock.earnings_growth,
+                    'graham_number_percent': stock.graham_number_percent,
+                    'ncav_or_net_net': stock.ncav_or_net_net,
+                    'equity_to_debt': stock.equity_to_debt,
+                    'size_in_assets': stock.size_in_assets
                 })
         
         else:

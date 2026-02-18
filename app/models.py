@@ -296,10 +296,38 @@ class StockCache(db.Model):
     price_52w_low = db.Column(db.Float)
     price_52w_high = db.Column(db.Float)
     distance_from_low = db.Column(db.Float)  # Percentage
+    eps = db.Column(db.Float)  # Earnings per share
+    book_value_per_share = db.Column(db.Float)  # Tangible book value per share
+    graham_number = db.Column(db.Float)  # Graham Number from GrahamValue
+    
+    # Graham Value Metrics (from GrahamValue.com)
+    size_in_sales = db.Column(db.Float)  # Percentage
+    current_assets_to_2x_liabilities = db.Column(db.Float)  # Percentage
+    net_current_assets_to_ltdebt = db.Column(db.Float)  # Percentage
+    earnings_stability = db.Column(db.Float)  # Percentage
+    dividend_record = db.Column(db.Float)  # Percentage
+    earnings_growth = db.Column(db.Float)  # Percentage
+    graham_number_percent = db.Column(db.Float)  # Percentage
+    ncav_or_net_net = db.Column(db.Float)  # Percentage (Net-Net)
+    equity_to_debt = db.Column(db.Float)  # 2 x Equity / Debt, Percentage
+    size_in_assets = db.Column(db.Float)  # Percentage
+    rating_score = db.Column(db.Float)  # Overall rating score
+    
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     
     def __repr__(self):
         return f'<StockCache {self.symbol} @ {self.current_price}>'
+    
+    def get_graham_number(self):
+        """Calculate Graham Number: √(22.5 × EPS × Book Value Per Share)"""
+        if not self.eps or not self.book_value_per_share or self.eps <= 0 or self.book_value_per_share <= 0:
+            return None
+        try:
+            import math
+            graham_num = math.sqrt(22.5 * self.eps * self.book_value_per_share)
+            return graham_num
+        except:
+            return None
     
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
@@ -315,5 +343,19 @@ class StockCache(db.Model):
             'trailing_pe': self.trailing_pe,
             'market_cap': self.market_cap,
             'market_cap_billions': self.market_cap_billions,
-            'dividend_yield': self.dividend_yield
+            'dividend_yield': self.dividend_yield,
+            'eps': self.eps,
+            'book_value_per_share': self.book_value_per_share,
+            'graham_number': self.graham_number,
+            'size_in_sales': self.size_in_sales,
+            'current_assets_to_2x_liabilities': self.current_assets_to_2x_liabilities,
+            'net_current_assets_to_ltdebt': self.net_current_assets_to_ltdebt,
+            'earnings_stability': self.earnings_stability,
+            'dividend_record': self.dividend_record,
+            'earnings_growth': self.earnings_growth,
+            'graham_number_percent': self.graham_number_percent,
+            'ncav_or_net_net': self.ncav_or_net_net,
+            'equity_to_debt': self.equity_to_debt,
+            'size_in_assets': self.size_in_assets,
+            'rating_score': self.rating_score
         }
