@@ -280,3 +280,114 @@ class Stock(db.Model):
             'percent_change': percent_change,
             'date_added': self.date_added.isoformat()
         }
+
+class StockCache(db.Model):
+    """Model for caching financial data of all tradeable stocks"""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(255))
+    sector = db.Column(db.String(100))
+    market_cap = db.Column(db.Float)  # In dollars
+    market_cap_billions = db.Column(db.Float)  # In billions (for convenience)
+    forward_pe = db.Column(db.Float)
+    trailing_pe = db.Column(db.Float)
+    dividend_yield = db.Column(db.Float)
+    current_price = db.Column(db.Float)
+    price_52w_low = db.Column(db.Float)
+    price_52w_high = db.Column(db.Float)
+    distance_from_low = db.Column(db.Float)  # Percentage
+    eps = db.Column(db.Float)  # Earnings per share
+    book_value_per_share = db.Column(db.Float)  # Tangible book value per share
+    graham_number = db.Column(db.Float)  # Graham Number from GrahamValue
+    
+    # Graham Value Metrics (from GrahamValue.com)
+    size_in_sales = db.Column(db.Float)  # Percentage
+    current_assets_to_2x_liabilities = db.Column(db.Float)  # Percentage
+    net_current_assets_to_ltdebt = db.Column(db.Float)  # Percentage
+    earnings_stability = db.Column(db.Float)  # Percentage
+    dividend_record = db.Column(db.Float)  # Percentage
+    earnings_growth = db.Column(db.Float)  # Percentage
+    graham_number_percent = db.Column(db.Float)  # Percentage
+    ncav_or_net_net = db.Column(db.Float)  # Percentage (Net-Net)
+    equity_to_debt = db.Column(db.Float)  # 2 x Equity / Debt, Percentage
+    size_in_assets = db.Column(db.Float)  # Percentage
+    rating_score = db.Column(db.Float)  # Overall rating score
+    
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    
+    def __repr__(self):
+        return f'<StockCache {self.symbol} @ {self.current_price}>'
+    
+    def get_graham_number(self):
+        """Calculate Graham Number: √(22.5 × EPS × Book Value Per Share)"""
+        if not self.eps or not self.book_value_per_share or self.eps <= 0 or self.book_value_per_share <= 0:
+            return None
+        try:
+            import math
+            graham_num = math.sqrt(22.5 * self.eps * self.book_value_per_share)
+            return graham_num
+        except:
+            return None
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'symbol': self.symbol,
+            'name': self.name,
+            'sector': self.sector,
+            'current_price': self.current_price,
+            'price_52w_low': self.price_52w_low,
+            'price_52w_high': self.price_52w_high,
+            'distance_from_low': self.distance_from_low,
+            'forward_pe': self.forward_pe,
+            'trailing_pe': self.trailing_pe,
+            'market_cap': self.market_cap,
+            'market_cap_billions': self.market_cap_billions,
+            'dividend_yield': self.dividend_yield,
+            'eps': self.eps,
+            'book_value_per_share': self.book_value_per_share,
+            'graham_number': self.graham_number,
+            'size_in_sales': self.size_in_sales,
+            'current_assets_to_2x_liabilities': self.current_assets_to_2x_liabilities,
+            'net_current_assets_to_ltdebt': self.net_current_assets_to_ltdebt,
+            'earnings_stability': self.earnings_stability,
+            'dividend_record': self.dividend_record,
+            'earnings_growth': self.earnings_growth,
+            'graham_number_percent': self.graham_number_percent,
+            'ncav_or_net_net': self.ncav_or_net_net,
+            'equity_to_debt': self.equity_to_debt,
+            'size_in_assets': self.size_in_assets,
+            'rating_score': self.rating_score
+        }
+
+
+class CacheScheduler(db.Model):
+    """Model for storing cache scheduler settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    enabled = db.Column(db.Boolean, default=False, nullable=False)  # Is the scheduler enabled?
+    day_of_week = db.Column(db.Integer, default=0, nullable=False)  # 0=Monday, 6=Sunday
+    hour = db.Column(db.Integer, default=2, nullable=False)  # Hour (0-23, in UTC)
+    minute = db.Column(db.Integer, default=0, nullable=False)  # Minute (0-59)
+    last_run = db.Column(db.DateTime)  # Last time cache was updated
+    next_run = db.Column(db.DateTime)  # Next scheduled run
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return f'<CacheScheduler enabled={self.enabled} {day_names[self.day_of_week]} {self.hour:02d}:{self.minute:02d}>'
+    
+    @staticmethod
+    def get_or_create():
+        """Get existing scheduler config or create default"""
+        scheduler = CacheScheduler.query.first()
+        if not scheduler:
+            scheduler = CacheScheduler(
+                enabled=False,
+                day_of_week=0,  # Monday
+                hour=2,  # 2 AM
+                minute=0
+            )
+            db.session.add(scheduler)
+            db.session.commit()
+        return scheduler

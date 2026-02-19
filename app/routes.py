@@ -1,8 +1,164 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response
 from datetime import datetime
-from app.models import db, Stock, Transaction, Account
+import yfinance as yf
+import requests
+import json
+from app.models import db, Stock, Transaction, Account, StockCache, CacheScheduler
+from bs4 import BeautifulSoup
+import re
 
 main_bp = Blueprint('main', __name__)
+
+
+import time
+
+# Global rate limiter for Graham metrics scraping (used during bulk download)
+_graham_last_request_time = 0
+_graham_request_lock = None
+
+def get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=True):
+    """
+    Scrape comprehensive Graham metrics from grahamvalue.com
+    Returns dict with all Graham rating metrics, or empty dict if scraping fails
+    
+    Args:
+        symbol: Stock ticker symbol
+        apply_rate_limit: If True, enforces rate limiting. Set to False when calling from cache_stocks
+                         which handles its own sequential rate limiting.
+    """
+    global _graham_last_request_time, _graham_request_lock
+    
+    if _graham_request_lock is None:
+        import threading
+        _graham_request_lock = threading.Lock()
+    
+    try:
+        # Rate limiting: only apply when not in bulk cache mode
+        # Bulk cache handles its own sequential rate limiting
+        if apply_rate_limit:
+            with _graham_request_lock:
+                elapsed = time.time() - _graham_last_request_time
+                if elapsed < 5:
+                    time.sleep(5 - elapsed)
+                _graham_last_request_time = time.time()
+        
+        url = f"https://www.grahamvalue.com/stock/{symbol.lower()}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        # Timeout to 30 seconds
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Get all text from the page
+        full_text = soup.get_text()
+        
+        graham_data = {
+            'graham_number': None,
+            'defensive_price': None,
+            'enterprising_price': None,
+            'ncav_price': None,
+            'rating_score': None,
+            'size_in_sales': None,
+            'current_assets_to_2x_liabilities': None,
+            'net_current_assets_to_ltdebt': None,
+            'earnings_stability': None,
+            'dividend_record': None,
+            'earnings_growth': None,
+            'graham_number_percent': None,
+            'ncav_or_net_net': None,
+            'equity_to_debt': None,
+            'size_in_assets': None
+        }
+        
+        # Extract Rating Score - look for "Rating Score = X.X" pattern
+        rating_match = re.search(r'Rating Score\s*=\s*([\d.]+)', full_text)
+        if rating_match:
+            graham_data['rating_score'] = float(rating_match.group(1))
+        
+        # Extract Defensive Price (Graham №)
+        defensive_match = re.search(r'Defensive Price[^:]*?\(Graham[^:]*?\):\s+([\d.]+)', full_text)
+        if defensive_match:
+            graham_data['defensive_price'] = float(defensive_match.group(1))
+            graham_data['graham_number'] = float(defensive_match.group(1))
+        
+        # Extract Enterprising Price (Serenity №)
+        enterprising_match = re.search(r'Enterprising Price[^:]*?\(Serenity[^:]*?\):\s+([\d.]+)', full_text)
+        if enterprising_match:
+            graham_data['enterprising_price'] = float(enterprising_match.group(1))
+        
+        # Extract NCAV Price (Net-Net)
+        ncav_match = re.search(r'NCAV Price[^:]*?\(Net-Net\):\s+([\d.]+)', full_text)
+        if ncav_match:
+            graham_data['ncav_price'] = float(ncav_match.group(1))
+        
+        # Extract Graham Ratings - look for the pattern with percentage
+        size_sales_match = re.search(r'Size in Sales.*?:\s+([\d,]+\.[\d]+)%', full_text)
+        if size_sales_match:
+            # Remove commas and convert to float
+            graham_data['size_in_sales'] = float(size_sales_match.group(1).replace(',', ''))
+        
+        current_assets_match = re.search(r'Current Assets\s*÷\s*\[2\s*x\s*Current Liabilities\]\s*:\s+([\d.]+)%', full_text)
+        if current_assets_match:
+            graham_data['current_assets_to_2x_liabilities'] = float(current_assets_match.group(1))
+        
+        net_current_match = re.search(r'Net Current Assets\s*÷\s*Long-Term Debt\s*:\s+([\d.]+)%', full_text)
+        if net_current_match:
+            graham_data['net_current_assets_to_ltdebt'] = float(net_current_match.group(1))
+        
+        earnings_stability_match = re.search(r'Earnings Stability\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if earnings_stability_match:
+            graham_data['earnings_stability'] = float(earnings_stability_match.group(1))
+        
+        dividend_record_match = re.search(r'Dividend Record\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if dividend_record_match:
+            graham_data['dividend_record'] = float(dividend_record_match.group(1))
+        
+        earnings_growth_match = re.search(r'Earnings Growth\s*[^:]*?:\s+([\d.]+)%', full_text)
+        if earnings_growth_match:
+            graham_data['earnings_growth'] = float(earnings_growth_match.group(1))
+        
+        graham_number_pct_match = re.search(r'Graham Number\(%\)\s*:\s+([\d.]+)%', full_text)
+        if graham_number_pct_match:
+            graham_data['graham_number_percent'] = float(graham_number_pct_match.group(1))
+        
+        ncav_pct_match = re.search(r'NCAV or Net-Net\(%\)\s*:\s+([\d.]+)%', full_text)
+        if ncav_pct_match:
+            graham_data['ncav_or_net_net'] = float(ncav_pct_match.group(1))
+        
+        equity_debt_match = re.search(r'\[2\s*x\s*Equity\]\s*÷\s*Debt\s*:\s+([\d.]+)%', full_text)
+        if equity_debt_match:
+            graham_data['equity_to_debt'] = float(equity_debt_match.group(1))
+        
+        size_assets_match = re.search(r'Size in Assets.*?:\s+([\d,]+\.[\d]+)%', full_text)
+        if size_assets_match:
+            # Remove commas and convert to float
+            graham_data['size_in_assets'] = float(size_assets_match.group(1).replace(',', ''))
+        
+        return graham_data
+        
+    except Exception as e:
+        print(f"Error scraping Graham data for {symbol}: {str(e)}")
+        # Return empty dict on error instead of None
+        return {
+            'graham_number': None,
+            'defensive_price': None,
+            'enterprising_price': None,
+            'ncav_price': None,
+            'rating_score': None,
+            'size_in_sales': None,
+            'current_assets_to_2x_liabilities': None,
+            'net_current_assets_to_ltdebt': None,
+            'earnings_stability': None,
+            'dividend_record': None,
+            'earnings_growth': None,
+            'graham_number_percent': None,
+            'ncav_or_net_net': None,
+            'equity_to_debt': None,
+            'size_in_assets': None
+        }
 
 
 @main_bp.route('/')
@@ -1044,3 +1200,585 @@ def get_stock_price(symbol):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@main_bp.route('/api/cache-stocks')
+def cache_stocks():
+    """
+    Server-Sent Events endpoint that downloads and caches financial data for all SEC stocks.
+    Sends progress updates to the client.
+    Skips Graham metrics during bulk download for speed (fetched on-demand).
+    """
+    from flask import current_app
+    import traceback
+    import time
+    
+    # Get the app while we're still in the request context
+    app = current_app._get_current_object()
+    
+    def fetch_stock_data(symbol, attempt=1):
+        """Fetch financial data and Graham metrics for a single stock with retry logic"""
+        max_attempts = 3
+        
+        try:
+            # Add delay to respect rate limits (same for both sources)
+            time.sleep(0.2)
+            
+            # Fetch yfinance data
+            ticker = yf.Ticker(symbol)
+            
+            try:
+                hist = ticker.history(period='1y', timeout=10)
+                if hist.empty or len(hist) < 200:
+                    return None
+            except Exception as e:
+                error_str = str(e).lower()
+                # Retry on rate limiting or temp errors
+                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
+                    time.sleep(2)  # Wait before retry
+                    return fetch_stock_data(symbol, attempt + 1)
+                return None
+            
+            try:
+                info = ticker.info
+                if not info or 'symbol' not in info:
+                    return None
+            except Exception as e:
+                error_str = str(e).lower()
+                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
+                    time.sleep(2)
+                    return fetch_stock_data(symbol, attempt + 1)
+                return None
+            
+            current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
+            price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
+            price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
+            
+            if not current_price or not price_52w_low or current_price <= 0 or price_52w_low <= 0:
+                return None
+            
+            distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
+            market_cap = info.get('marketCap')
+            market_cap_billions = (market_cap / 1_000_000_000) if market_cap and market_cap > 0 else None
+            
+            # Fetch Graham metrics (with rate limiting disabled - handled sequentially here)
+            graham_metrics = {}
+            try:
+                graham_metrics = get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=False) or {}
+            except Exception as e:
+                print(f"Warning: Failed to fetch Graham metrics for {symbol}: {str(e)[:80]}")
+                # Don't fail the entire stock if Graham metrics fail - just skip them
+                graham_metrics = {}
+            
+            return {
+                'symbol': symbol,
+                'name': info.get('longName', symbol),
+                'sector': info.get('sector', 'N/A'),
+                'market_cap': market_cap,
+                'market_cap_billions': market_cap_billions,
+                'forward_pe': info.get('forwardPE'),
+                'trailing_pe': info.get('trailingPE'),
+                'dividend_yield': info.get('dividendYield', 0),
+                'current_price': current_price,
+                'price_52w_low': price_52w_low,
+                'price_52w_high': price_52w_high,
+                'distance_from_low': distance_from_low,
+                'eps': info.get('trailingEps'),
+                'book_value_per_share': info.get('bookValue'),
+                # Graham metrics
+                'graham_number': graham_metrics.get('graham_number'),
+                'rating_score': graham_metrics.get('rating_score'),
+                'size_in_sales': graham_metrics.get('size_in_sales'),
+                'current_assets_to_2x_liabilities': graham_metrics.get('current_assets_to_2x_liabilities'),
+                'net_current_assets_to_ltdebt': graham_metrics.get('net_current_assets_to_ltdebt'),
+                'earnings_stability': graham_metrics.get('earnings_stability'),
+                'dividend_record': graham_metrics.get('dividend_record'),
+                'earnings_growth': graham_metrics.get('earnings_growth'),
+                'graham_number_percent': graham_metrics.get('graham_number_percent'),
+                'ncav_or_net_net': graham_metrics.get('ncav_or_net_net'),
+                'equity_to_debt': graham_metrics.get('equity_to_debt'),
+                'size_in_assets': graham_metrics.get('size_in_assets')
+            }
+        except Exception as e:
+            print(f"Error fetching {symbol}: {str(e)[:100]}")
+            return None
+    
+    def generate_progress():
+        # Create an app context for the generator execution
+        with app.app_context():
+            try:
+                # Get all SEC tickers
+                yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': 'Fetching SEC securities list...'})}\n\n"
+                
+                symbols = get_sec_stock_symbols()
+                total = len(symbols)
+                
+                if total == 0:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
+                    return
+                
+                yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities (this may take a few minutes)...'})}\n\n"
+                
+                # Clear old cache
+                StockCache.query.delete()
+                db.session.commit()
+                
+                successful = 0
+                batch = []
+                processed = 0
+                
+                # Sequential processing: more reliable with yfinance than concurrent
+                # Process stocks one at a time with proper delays
+                for symbol in symbols:
+                    processed += 1
+                    
+                    try:
+                        result = fetch_stock_data(symbol)
+                        
+                        if result:
+                            cache_entry = StockCache(
+                                symbol=result['symbol'],
+                                name=result['name'],
+                                sector=result['sector'],
+                                market_cap=result['market_cap'],
+                                market_cap_billions=result['market_cap_billions'],
+                                forward_pe=result['forward_pe'],
+                                trailing_pe=result['trailing_pe'],
+                                dividend_yield=result['dividend_yield'],
+                                current_price=result['current_price'],
+                                price_52w_low=result['price_52w_low'],
+                                price_52w_high=result['price_52w_high'],
+                                distance_from_low=result['distance_from_low'],
+                                eps=result['eps'],
+                                book_value_per_share=result['book_value_per_share'],
+                                # Graham metrics (now fetched during cache download)
+                                graham_number=result.get('graham_number'),
+                                rating_score=result.get('rating_score'),
+                                size_in_sales=result.get('size_in_sales'),
+                                current_assets_to_2x_liabilities=result.get('current_assets_to_2x_liabilities'),
+                                net_current_assets_to_ltdebt=result.get('net_current_assets_to_ltdebt'),
+                                earnings_stability=result.get('earnings_stability'),
+                                dividend_record=result.get('dividend_record'),
+                                earnings_growth=result.get('earnings_growth'),
+                                graham_number_percent=result.get('graham_number_percent'),
+                                ncav_or_net_net=result.get('ncav_or_net_net'),
+                                equity_to_debt=result.get('equity_to_debt'),
+                                size_in_assets=result.get('size_in_assets')
+                            )
+                            
+                            batch.append(cache_entry)
+                            successful += 1
+                        
+                        # Commit every 25 stocks and send progress update
+                        if processed % 25 == 0:
+                            for entry in batch:
+                                db.session.add(entry)
+                            db.session.commit()
+                            batch = []
+                            yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
+                    
+                    except Exception as e:
+                        print(f"Exception processing {symbol}: {str(e)[:100]}")
+                        continue
+                
+                # Final commit for remaining batch
+                if batch:
+                    for entry in batch:
+                        db.session.add(entry)
+                    db.session.commit()
+                
+                yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'successful': successful, 'message': f'Successfully cached {successful:,} stocks'})}\n\n"
+                
+            except Exception as e:
+                error_msg = f"{str(e)}"
+                tb = traceback.format_exc()
+                print(f"Error in cache_stocks: {error_msg}")
+                print(tb)
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Error during caching: {error_msg}', 'traceback': tb})}\n\n"
+    
+    return Response(generate_progress(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
+
+
+@main_bp.route('/api/graham-metrics/<symbol>')
+def get_graham_metrics_api(symbol):
+    """API endpoint to fetch Graham metrics for a single stock on-demand"""
+    try:
+        # Try to get from cache first
+        cached = StockCache.query.filter_by(symbol=symbol).first()
+        if cached and cached.rating_score is not None:
+            # Already cached with metrics
+            return jsonify({
+                'graham_number': cached.graham_number,
+                'rating_score': cached.rating_score,
+                'size_in_sales': cached.size_in_sales,
+                'current_assets_to_2x_liabilities': cached.current_assets_to_2x_liabilities,
+                'net_current_assets_to_ltdebt': cached.net_current_assets_to_ltdebt,
+                'earnings_stability': cached.earnings_stability,
+                'dividend_record': cached.dividend_record,
+                'earnings_growth': cached.earnings_growth,
+                'graham_number_percent': cached.graham_number_percent,
+                'ncav_or_net_net': cached.ncav_or_net_net,
+                'equity_to_debt': cached.equity_to_debt,
+                'size_in_assets': cached.size_in_assets
+            })
+        
+        # Fetch from GrahamValue
+        metrics = get_graham_metrics_from_grahamvalue(symbol) or {}
+        
+        # Update cache if it exists
+        if cached:
+            cached.graham_number = metrics.get('graham_number')
+            cached.rating_score = metrics.get('rating_score')
+            cached.size_in_sales = metrics.get('size_in_sales')
+            cached.current_assets_to_2x_liabilities = metrics.get('current_assets_to_2x_liabilities')
+            cached.net_current_assets_to_ltdebt = metrics.get('net_current_assets_to_ltdebt')
+            cached.earnings_stability = metrics.get('earnings_stability')
+            cached.dividend_record = metrics.get('dividend_record')
+            cached.earnings_growth = metrics.get('earnings_growth')
+            cached.graham_number_percent = metrics.get('graham_number_percent')
+            cached.ncav_or_net_net = metrics.get('ncav_or_net_net')
+            cached.equity_to_debt = metrics.get('equity_to_debt')
+            cached.size_in_assets = metrics.get('size_in_assets')
+            db.session.commit()
+        
+        return jsonify(metrics)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/cache-scheduler/config', methods=['GET'])
+def get_cache_scheduler_config():
+    """Get current cache scheduler configuration"""
+    try:
+        scheduler = CacheScheduler.get_or_create()
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        return jsonify({
+            'enabled': scheduler.enabled,
+            'day_of_week': scheduler.day_of_week,
+            'day_name': day_names[scheduler.day_of_week],
+            'hour': scheduler.hour,
+            'minute': scheduler.minute,
+            'last_run': scheduler.last_run.isoformat() if scheduler.last_run else None,
+            'next_run': scheduler.next_run.isoformat() if scheduler.next_run else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/cache-scheduler/config', methods=['POST'])
+def update_cache_scheduler_config():
+    """Update cache scheduler configuration"""
+    try:
+        data = request.get_json()
+        scheduler = CacheScheduler.get_or_create()
+        
+        # Update fields
+        if 'enabled' in data:
+            scheduler.enabled = bool(data['enabled'])
+        if 'day_of_week' in data:
+            day = int(data['day_of_week'])
+            if 0 <= day <= 6:
+                scheduler.day_of_week = day
+            else:
+                return jsonify({'error': 'day_of_week must be 0-6'}), 400
+        if 'hour' in data:
+            hour = int(data['hour'])
+            if 0 <= hour <= 23:
+                scheduler.hour = hour
+            else:
+                return jsonify({'error': 'hour must be 0-23'}), 400
+        if 'minute' in data:
+            minute = int(data['minute'])
+            if 0 <= minute <= 59:
+                scheduler.minute = minute
+            else:
+                return jsonify({'error': 'minute must be 0-59'}), 400
+        
+        scheduler.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        return jsonify({
+            'success': True,
+            'message': f'Scheduler {"enabled" if scheduler.enabled else "disabled"}',
+            'enabled': scheduler.enabled,
+            'day_of_week': scheduler.day_of_week,
+            'day_name': day_names[scheduler.day_of_week],
+            'hour': scheduler.hour,
+            'minute': scheduler.minute
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+def get_sec_stock_symbols():
+    """
+    Fetch all valid tradeable stock symbols from the SEC's official company_tickers.json file.
+    This is the most comprehensive and authoritative source of all US traded securities.
+    Contains 10,000+ stocks across all US exchanges.
+    """
+    import time
+    
+    url = 'https://www.sec.gov/files/company_tickers.json'
+    max_retries = 3
+    
+    # Use proper User-Agent to avoid rate limiting
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract all ticker symbols from SEC data
+            tickers = []
+            for entry in data.values():
+                ticker = entry.get('ticker', '').strip().upper()
+                if ticker:
+                    tickers.append(ticker)
+            
+            unique_tickers = sorted(list(set(tickers)))
+            print(f"Successfully fetched {len(unique_tickers)} securities from SEC")
+            return unique_tickers
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1}/{max_retries} failed to fetch SEC tickers: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                time.sleep(wait_time)
+            else:
+                print("Warning: Failed to fetch SEC stock symbols after retries")
+                return []
+        except Exception as e:
+            print(f"Error parsing SEC data: {e}")
+            return []
+
+
+def get_all_stock_symbols():
+    """
+    Get a comprehensive list of US stock symbols dynamically from the SEC.
+    This includes all valid tradeable stocks across all exchanges.
+    """
+    return get_sec_stock_symbols()
+
+
+def get_fallback_stock_symbols():
+    """
+    Fallback hardcoded list of US stocks for when dynamic fetch fails.
+    """
+    stocks = [
+        # Mega cap tech
+        'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA',
+        # Large cap financials & diversified
+        'BRK.B', 'BRK.A', 'JPM', 'BAC', 'GS', 'MS', 'C', 'WFC', 'USB', 'PNC', 'TD',
+        # Healthcare & Pharma
+        'JNJ', 'UNH', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'CVS', 'LLY', 'AZN', 'AMGN', 'BNTX', 'MRNA', 'SYK',
+        # Consumer discretionary
+        'WMT', 'HD', 'NKE', 'MCD', 'SBUX', 'TJX', 'LOW', 'COST', 'MAR', 'LVS', 'ULTA', 'GWW',
+        # Consumer staples
+        'PG', 'PEP', 'KO', 'MO', 'PM', 'CL', 'KMB', 'GIS', 'EL', 'CAG', 'MDLZ', 'MNST',
+        # Industrials
+        'BA', 'CAT', 'MMM', 'HON', 'ITW', 'GE', 'EMR', 'ETN', 'ROK', 'PCAR', 'NSC', 'UNP', 'CSX',
+        # Tech/Software
+        'V', 'MA', 'ADBE', 'CRM', 'INTC', 'AMD', 'CSCO', 'PYPL', 'INTU', 'ANET', 'NOW', 'SNOW', 'AVLR', 'FTNT',
+        # Semiconductors
+        'QCOM', 'AVGO', 'MU', 'LRCX', 'ASML', 'TXN', 'MCHP', 'ON', 'KLAC', 'MRVL', 'SLAB', 'AMAT',
+        # Communication services
+        'DIS', 'NFLX', 'CMCSA', 'T', 'VZ', 'CHTR', 'FOX', 'FOXE', 'PARA', 'ROKU', 'SNAP', 'PINS', 'MTCH',
+        # Energy
+        'COP', 'CVX', 'XOM', 'SLB', 'EOG', 'FANG', 'KMI', 'OKE', 'MPC', 'PSX', 'PXD', 'WMB',
+        # Utilities
+        'SO', 'EXC', 'DUK', 'AEP', 'AWK', 'NEE', 'CMS', 'SRE', 'PEG', 'ED', 'XEL', 'PPL', 'AEE',
+        # Real estate & Infrastructure
+        'PLD', 'EQIX', 'DLR', 'WELL', 'IRM', 'AVB', 'EQR', 'AMT', 'CCI', 'O', 'PSA', 'SPG', 'WY',
+        # Materials
+        'MLM', 'HUN', 'APD', 'DOW', 'DD', 'ECL', 'LIN', 'PPG', 'ALB', 'NEM', 'GLD', 'SLV', 'FCX', 'RIO', 'VALE',
+    ]
+    
+    return sorted(list(set(stocks)))
+
+
+@main_bp.route('/research')
+def research():
+    """Display research page with stock recommendations"""
+    suggestions = []
+    error_message = None
+    cache_status = None
+    
+    # Get filter parameters from query string with defaults
+    symbols_input = request.args.get('symbols', '').strip()
+    # Market cap is provided in MILLIONS from the form, so convert to BILLIONS for comparison
+    market_cap_min_millions = request.args.get('market_cap_min', 0, type=float)  # Default 0M (no minimum)
+    market_cap_max_millions = request.args.get('market_cap_max', 10000000, type=float)  # Default 10000000M (essentially unlimited)
+    market_cap_min = market_cap_min_millions / 1000  # Convert to billions
+    market_cap_max = market_cap_max_millions / 1000  # Convert to billions
+    
+    distance_min = request.args.get('distance_min', 0, type=float)  # Default 0%
+    distance_max = request.args.get('distance_max', 100, type=float)  # Default 100% (entire 52-week range)
+    forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
+    rating_score_min = request.args.get('rating_score_min', 0, type=float)  # Default 0 (no minimum)
+    rating_score_max = request.args.get('rating_score_max', 10, type=float)  # Default 100 (essentially unlimited)
+    
+    try:
+        # Check if we have cached data
+        cache_count = StockCache.query.count()
+        
+        if symbols_input:
+            # If user provides custom symbols, fetch live data for those specific stocks
+            symbols_to_search = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
+            cache_status = f'Searching {len(symbols_to_search)} custom symbols (live data)'
+            
+            for symbol in symbols_to_search:
+                try:
+                    ticker = yf.Ticker(symbol)
+                    hist = ticker.history(period='1y')
+                    if len(hist) < 200:
+                        continue
+                    current_price = hist['Close'].iloc[-1]
+                    info = ticker.info
+                    week_52_high = hist['High'].tail(252).max()
+                    week_52_low = hist['Low'].tail(252).min()
+                    if not current_price or not week_52_low or not week_52_high:
+                        continue
+                    distance_from_low = ((current_price - week_52_low) / week_52_low) * 100
+                    forward_pe = info.get('forwardPE') or info.get('trailingPE')
+                    if not forward_pe:
+                        continue
+                    market_cap = info.get('marketCap')
+                    if not market_cap:
+                        continue
+                    market_cap_billions = market_cap / 1_000_000_000
+                    
+                    if (
+                        distance_min <= distance_from_low <= distance_max and
+                        forward_pe <= forward_pe_max and
+                        market_cap_min <= market_cap_billions <= market_cap_max
+                    ):
+                        # Calculate Graham Number
+                        eps = info.get('trailingEps')
+                        book_value_per_share = info.get('bookValue')
+                        graham_number = None
+                        if eps and book_value_per_share and eps > 0 and book_value_per_share > 0:
+                            import math
+                            graham_number = math.sqrt(22.5 * eps * book_value_per_share)
+                        
+                        # Fetch Graham metrics from GrahamValue
+                        graham_metrics = get_graham_metrics_from_grahamvalue(symbol) or {}
+                        
+                        suggestions.append({
+                            'symbol': symbol,
+                            'name': info.get('longName', symbol),
+                            'current_price': current_price,
+                            'week_52_low': week_52_low,
+                            'week_52_high': week_52_high,
+                            'distance_from_low': distance_from_low,
+                            'forward_pe': forward_pe,
+                            'market_cap': market_cap,
+                            'market_cap_billions': market_cap_billions,
+                            'sector': info.get('sector', 'N/A'),
+                            'dividend_yield': info.get('dividendYield', 0),
+                            'pe_ratio': info.get('trailingPE'),
+                            'eps': eps,
+                            'book_value_per_share': book_value_per_share,
+                            'graham_number': graham_number,
+                            'rating_score': graham_metrics.get('rating_score'),
+                            'size_in_sales': graham_metrics.get('size_in_sales'),
+                            'current_assets_to_2x_liabilities': graham_metrics.get('current_assets_to_2x_liabilities'),
+                            'net_current_assets_to_ltdebt': graham_metrics.get('net_current_assets_to_ltdebt'),
+                            'earnings_stability': graham_metrics.get('earnings_stability'),
+                            'dividend_record': graham_metrics.get('dividend_record'),
+                            'earnings_growth': graham_metrics.get('earnings_growth'),
+                            'graham_number_percent': graham_metrics.get('graham_number_percent'),
+                            'ncav_or_net_net': graham_metrics.get('ncav_or_net_net'),
+                            'equity_to_debt': graham_metrics.get('equity_to_debt'),
+                            'size_in_assets': graham_metrics.get('size_in_assets')
+                        })
+                except Exception as e:
+                    continue
+        
+        elif cache_count > 0:
+            # Use cached data if available
+            cache_status = f'✓ {cache_count:,} stocks cached and ready to search'
+            
+            # Query cached stocks with filters
+            cached_stocks = StockCache.query.filter(
+                StockCache.market_cap_billions >= market_cap_min,
+                StockCache.market_cap_billions <= market_cap_max,
+                StockCache.distance_from_low >= distance_min,
+                StockCache.distance_from_low <= distance_max
+            ).all()
+            
+            # Apply forward P/E and rating score filters (handling None values)
+            for stock in cached_stocks:
+                forward_pe = stock.forward_pe or stock.trailing_pe or 0
+                if forward_pe == 0 or forward_pe > forward_pe_max:
+                    continue
+                
+                # Filter by rating score if it exists
+                if stock.rating_score is not None:
+                    if not (rating_score_min <= stock.rating_score <= rating_score_max):
+                        continue
+                else:
+                    # Skip stocks with no rating score if a filter is applied
+                    if rating_score_min > 0 or rating_score_max < 100:
+                        continue
+                
+                suggestions.append({
+                    'symbol': stock.symbol,
+                    'name': stock.name,
+                    'current_price': stock.current_price,
+                    'week_52_low': stock.price_52w_low,
+                    'week_52_high': stock.price_52w_high,
+                    'distance_from_low': stock.distance_from_low,
+                    'forward_pe': forward_pe,
+                    'market_cap': stock.market_cap,
+                    'market_cap_billions': stock.market_cap_billions,
+                    'sector': stock.sector,
+                    'dividend_yield': stock.dividend_yield,
+                    'pe_ratio': stock.trailing_pe,
+                    'eps': stock.eps,
+                    'book_value_per_share': stock.book_value_per_share,
+                    'graham_number': stock.graham_number,
+                    'rating_score': stock.rating_score,
+                    'size_in_sales': stock.size_in_sales,
+                    'current_assets_to_2x_liabilities': stock.current_assets_to_2x_liabilities,
+                    'net_current_assets_to_ltdebt': stock.net_current_assets_to_ltdebt,
+                    'earnings_stability': stock.earnings_stability,
+                    'dividend_record': stock.dividend_record,
+                    'earnings_growth': stock.earnings_growth,
+                    'graham_number_percent': stock.graham_number_percent,
+                    'ncav_or_net_net': stock.ncav_or_net_net,
+                    'equity_to_debt': stock.equity_to_debt,
+                    'size_in_assets': stock.size_in_assets
+                })
+        
+        else:
+            # If no cache and no custom symbols, show informational message
+            cache_status = '⏳ Ready to cache 10,397+ SEC securities. Click "Download Stock Data" to begin.'
+            error_message = 'Cache is empty. Click the "Download Stock Data" button to populate the cache with all 10,397+ SEC-listed securities. This one-time download enables fast filtering across your entire investment universe.'
+    
+    except Exception as e:
+        error_message = f"Error fetching research data: {str(e)}"
+    
+    return render_template('research.html', 
+                         suggestions=suggestions, 
+                         error_message=error_message,
+                         cache_status=cache_status,
+                         symbols=symbols_input,
+                         market_cap_min=market_cap_min_millions,
+                         market_cap_max=market_cap_max_millions,
+                         distance_min=distance_min,
+                         distance_max=distance_max,
+                         forward_pe_max=forward_pe_max,
+                         rating_score_min=rating_score_min,
+                         rating_score_max=rating_score_max)

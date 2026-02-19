@@ -1,0 +1,739 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tracker - Research{% endblock %}
+
+{% block content %}
+<div class="portfolio-header">
+    <h2>Research & Stock Suggestions</h2>
+    <p class="subtitle">Find promising investment opportunities</p>
+</div>
+
+<!-- Cache Status and Download Button -->
+<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <strong>Data Cache Status:</strong>
+        <span id="cache-status" style="color: #27ae60; font-weight: bold;">{{ cache_status if cache_status else 'No cached data' }}</span>
+    </div>
+    <button type="button" id="download-btn" class="btn btn-success" onclick="startCacheDownload()">
+        📥 Download Stock Data
+    </button>
+</div>
+
+<!-- Progress Bar (hidden by default) -->
+<div id="progress-container" style="display: none; margin-bottom: 20px;">
+    <div style="margin-bottom: 10px;">
+        <strong>Downloading and caching stock data...</strong>
+        <span id="progress-status">Initializing...</span>
+    </div>
+    <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
+        <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+            0%
+        </div>
+    </div>
+    <div id="progress-details" style="margin-top: 10px; font-size: 12px; color: #7f8c8d;"></div>
+</div>
+
+<!-- Automated Cache Scheduler Settings -->
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h4 style="margin: 0;">⏰ Automated Cache Scheduler</h4>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSchedulerSettings()">
+            <span id="scheduler-toggle-text">Show Settings</span>
+        </button>
+    </div>
+    
+    <div id="scheduler-settings" style="display: none;">
+        <div style="margin-bottom: 15px; padding: 10px; background-color: white; border-radius: 4px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                <!-- Enable/Disable Toggle -->
+                <div>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="scheduler-enabled" style="margin-right: 8px; cursor: pointer;">
+                        <span><strong>Enable Scheduler</strong></span>
+                    </label>
+                </div>
+                
+                <!-- Day of Week Selector -->
+                <div>
+                    <label for="scheduler-day"><strong>Day</strong></label>
+                    <select id="scheduler-day" style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                </div>
+                
+                <!-- Hour Selector -->
+                <div>
+                    <label for="scheduler-hour"><strong>Hour (UTC)</strong></label>
+                    <input type="number" id="scheduler-hour" min="0" max="23" value="2" 
+                           style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </div>
+                
+                <!-- Minute Selector -->
+                <div>
+                    <label for="scheduler-minute"><strong>Minute</strong></label>
+                    <input type="number" id="scheduler-minute" min="0" max="59" value="0" 
+                           style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveSchedulerSettings()">
+                    💾 Save Settings
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="loadSchedulerSettings()">
+                    ↻ Reload
+                </button>
+            </div>
+            
+            <div id="scheduler-status" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+        </div>
+    </div>
+</div>
+
+{% if error_message %}
+    <div style="background-color: #fadbd8; border: 1px solid #e74c3c; color: #c0392b; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+        <strong>Error:</strong> {{ error_message }}
+    </div>
+{% endif %}
+
+<div class="research-criteria">
+    <h3>Filter Criteria</h3>
+    <form method="GET" action="{{ url_for('main.research') }}" id="filter-form">
+        <div class="filter-grid">
+            <!-- Stock Symbols to Research -->
+            <div class="filter-group">
+                <label for="symbols"><strong>Stock Symbols (comma-separated)</strong></label>
+                <textarea id="symbols" name="symbols" rows="4" placeholder="e.g., AAPL, MSFT, GOOGL, AMZN&#10;Leave blank to search ALL SEC-listed stocks" style="padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 14px; font-family: monospace; background-color: white; transition: border-color 0.2s; resize: vertical;">{{ symbols }}</textarea>
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    Enter stock ticker symbols separated by commas. Leave blank to search all 10,397+ SEC-listed tradeable securities (download data first for best performance).
+                </div>
+            </div>
+
+            <!-- Market Cap Range -->
+            <div class="filter-group">
+                <label for="market_cap_min"><strong>Market Cap Range (Millions)</strong></label>
+                <div class="range-inputs">
+                    <input type="number" id="market_cap_min" name="market_cap_min" min="0" step="1" 
+                           value="{{ "%d" | format(market_cap_min | int) }}" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="market_cap_max" name="market_cap_max" min="0" step="1" 
+                           value="{{ "%d" | format(market_cap_max | int) }}" placeholder="Max">
+                </div>
+            </div>
+
+            <!-- 52-Week Distance Range -->
+            <div class="filter-group">
+                <label for="distance_slider"><strong>Distance from 52-Week Low</strong></label>
+                <div class="distance-display">
+                    <span id="distance_display">{{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</span>
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="distance_min_slider" min="0" max="100" step="0.5" 
+                           value="{{ distance_min }}" class="distance-slider">
+                    <input type="range" id="distance_max_slider" min="0" max="100" step="0.5" 
+                           value="{{ distance_max }}" class="distance-slider">
+                </div>
+                <input type="hidden" id="distance_min" name="distance_min" value="{{ distance_min }}">
+                <input type="hidden" id="distance_max" name="distance_max" value="{{ distance_max }}">
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    0% = 52-week low, 100% = 52-week high
+                </div>
+            </div>
+
+            <!-- Forward P/E Maximum -->
+            <div class="filter-group">
+                <label for="forward_pe_max"><strong>Forward P/E (Max)</strong></label>
+                <input type="number" id="forward_pe_max" name="forward_pe_max" min="0" step="1" 
+                       value="{{ forward_pe_max }}" placeholder="Max P/E">
+            </div>
+
+            <!-- Graham Rating Score Range -->
+            <div class="filter-group">
+                <label for="rating_score_min"><strong>Graham Rating Score Range</strong></label>
+                <div class="range-inputs">
+                    <input type="number" id="rating_score_min" name="rating_score_min" min="0" max="100" step="0.1" 
+                           value="{{ "%.1f"|format(rating_score_min) }}" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="rating_score_max" name="rating_score_max" min="0" max="100" step="0.1" 
+                           value="{{ "%.1f"|format(rating_score_max) }}" placeholder="Max">
+                </div>
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    Higher scores indicate better value. Typically 0-100 scale. Only affects stocks with cached Graham data.
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-primary">Apply Filters</button>
+            <button type="reset" class="btn btn-secondary" onclick="resetFilters()">Reset to Defaults</button>
+        </div>
+    </form>
+</div>
+
+{% if suggestions %}
+    <div class="stocks-table-container">
+        <p style="margin-bottom: 15px; color: #7f8c8d;"><strong>{{ suggestions|length }}</strong> stock(s) matching your criteria</p>
+        <table class="stocks-table" id="suggestionsTable">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th class="sortable" data-sort="symbol">Symbol</th>
+                    <th class="sortable" data-sort="name">Company Name</th>
+                    <th class="sortable" data-sort="sector">Sector</th>
+                    <th class="sortable" data-sort="distance">% From Low</th>
+                    <th class="sortable" data-sort="pe_forward">Forward P/E</th>
+                    <th class="sortable" data-sort="marketcap">Market Cap</th>
+                    <th class="sortable" data-sort="dividend">Div Yield</th>
+                    <th class="sortable" data-sort="rating">Rating Score</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                {% for stock in suggestions %}
+                    <tr class="stock-row" data-toggle="stock-{{ loop.index }}" data-symbol="{{ stock.symbol }}" data-name="{{ stock.name }}" data-sector="{{ stock.sector }}" 
+                        data-price="{{ stock.current_price }}" data-low52="{{ stock.week_52_low }}" 
+                        data-high52="{{ stock.week_52_high }}" data-distance="{{ stock.distance_from_low }}"
+                        data-pe_forward="{{ stock.forward_pe }}"
+                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}" data-rating="{{ stock.rating_score or 0 }}">
+                        <td class="toggle-cell" style="cursor: pointer;">
+                            <span class="toggle-arrow">▶</span>
+                        </td>
+                        <td><strong>{{ stock.symbol }}</strong></td>
+                        <td>{{ stock.name }}</td>
+                        <td>{{ stock.sector }}</td>
+                        <td>
+                            <span class="percent-change {% if stock.distance_from_low >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ "{:.2f}".format(stock.distance_from_low) }}%
+                            </span>
+                        </td>
+                        <td>
+                            {% if stock.forward_pe %}
+                                {{ "{:.2f}".format(stock.forward_pe) }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>${{ "{:,.0f}".format(stock.market_cap_billions * 1000) }}M</td>
+                        <td>
+                            {% if stock.dividend_yield %}
+                                {{ "{:.2f}".format(stock.dividend_yield) }}%
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td style="color: #3498db; font-weight: bold;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score is not none else 'N/A' }}</td>
+                        <td>
+                            <div class="action-dropdown">
+                                <button type="button" class="btn btn-small btn-secondary action-toggle" data-symbol="{{ stock.symbol }}">Actions</button>
+                                <div class="action-menu" id="actions-{{ stock.symbol }}" style="display: none;">
+                                    <form method="GET" action="{{ url_for('main.add_stock', type='portfolio') }}" style="display: inline;">
+                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
+                                        <button type="submit" class="btn btn-small btn-primary btn-block">Add to Portfolio</button>
+                                    </form>
+                                    <form method="GET" action="{{ url_for('main.add_stock', type='watchlist') }}" style="display: inline;">
+                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
+                                        <button type="submit" class="btn btn-small btn-info btn-block">Add to Watchlist</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Graham Number Detail Row (hidden by default) -->
+                    <tr class="detail-row" style="display: none;" data-parent="stock-{{ loop.index }}">
+                        <td></td>
+                        <td colspan="11">
+                            <div style="padding: 15px; background-color: #f9f9f9; border-left: 4px solid #3498db;">
+                                <h4 style="margin: 0 0 15px 0; color: #333;">Graham Value Analysis</h4>
+                                
+                                <!-- Price Information Section -->
+                                <div style="margin-bottom: 20px;">
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Price Information</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Current Price:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.current_price) if stock.current_price is not none else 'N/A' }}</span></div>
+                                        <div><strong>52-Week Low:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.week_52_low) if stock.week_52_low is not none else 'N/A' }}</span></div>
+                                        <div><strong>52-Week High:</strong><br><span style="font-weight: bold;">${{ "{:,.2f}".format(stock.week_52_high) if stock.week_52_high is not none else 'N/A' }}</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- Financial Ratios Section -->
+                                <div style="margin-bottom: 20px;">
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Financial Ratios & Metrics</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Size in Sales:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.size_in_sales) if stock.size_in_sales is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Current Assets ÷ 2x Liabilities:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.current_assets_to_2x_liabilities) if stock.current_assets_to_2x_liabilities is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Net Current Assets ÷ LT Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.net_current_assets_to_ltdebt) if stock.net_current_assets_to_ltdebt is not none else 'N/A' }}%</span></div>
+                                        <div><strong>2x Equity ÷ Debt:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.equity_to_debt) if stock.equity_to_debt is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Size in Assets:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.size_in_assets) if stock.size_in_assets is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Stability:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.earnings_stability) if stock.earnings_stability is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Dividend Record:</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.dividend_record) if stock.dividend_record is not none else 'N/A' }}%</span></div>
+                                        <div><strong>Earnings Growth:</strong><br><span style="font-weight: bold;">{{ "{:,.2f}".format(stock.earnings_growth) if stock.earnings_growth is not none else 'N/A' }}%</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- Graham Values Section -->
+                                <div>
+                                    <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 13px;">
+                                        <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent is not none else 'N/A' }}%</span></div>
+                                        <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net is not none else 'N/A' }}%</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="empty-state">
+        <h3>No Matching Stocks Found</h3>
+        <p>No stocks currently match your filter criteria:</p>
+        <ul style="text-align: left; display: inline-block; margin: 20px 0;">
+            <li>Market Cap: ${{ "{:,.0f}".format(market_cap_min) }}M - ${{ "{:,.0f}".format(market_cap_max) }}M</li>
+            <li>Distance from 52-week low: {{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</li>
+            <li>Forward P/E: ≤ {{ "{:.1f}".format(forward_pe_max) }}</li>
+        </ul>
+        <p>Try adjusting your filters to find more opportunities.</p>
+    </div>
+{% endif %}
+
+<script>
+function resetFilters() {
+    document.getElementById('market_cap_min').value = 0;
+    document.getElementById('market_cap_max').value = 10000000;
+    document.getElementById('distance_min_slider').value = 0;
+    document.getElementById('distance_max_slider').value = 15;
+    document.getElementById('forward_pe_max').value = 40;
+    document.getElementById('rating_score_min').value = 0;
+    document.getElementById('rating_score_max').value = 100;
+    updateDistanceDisplay();
+}
+
+function updateDistanceDisplay() {
+    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
+    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
+    
+    document.getElementById('distance_min').value = minVal;
+    document.getElementById('distance_max').value = maxVal;
+    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
+    
+    // Ensure min doesn't exceed max
+    if (minVal > maxVal) {
+        document.getElementById('distance_min_slider').value = maxVal;
+        document.getElementById('distance_min').value = maxVal;
+    }
+}
+
+function updateMaxDistance() {
+    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
+    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
+    
+    document.getElementById('distance_min').value = minVal;
+    document.getElementById('distance_max').value = maxVal;
+    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
+    
+    // Ensure max doesn't go below min
+    if (maxVal < minVal) {
+        document.getElementById('distance_max_slider').value = minVal;
+        document.getElementById('distance_max').value = minVal;
+    }
+}
+
+document.getElementById('distance_min_slider').addEventListener('input', updateDistanceDisplay);
+document.getElementById('distance_max_slider').addEventListener('input', updateMaxDistance);
+
+// Table sorting functionality
+let sortConfig = { column: null, direction: 'asc' };
+
+document.querySelectorAll('th.sortable').forEach(header => {
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+        const column = header.dataset.sort;
+        
+        // Toggle direction if same column clicked
+        if (sortConfig.column === column) {
+            sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortConfig.column = column;
+            sortConfig.direction = 'asc';
+        }
+        
+        // Update header arrows
+        document.querySelectorAll('th.sortable').forEach(h => {
+            const arrow = h.querySelector('.sort-arrow');
+            if (arrow) {
+                arrow.remove();
+            }
+        });
+        
+        // Add arrow to current sorted column
+        const arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        arrow.textContent = sortConfig.direction === 'asc' ? ' ↑' : ' ↓';
+        header.appendChild(arrow);
+        
+        sortTable(column, sortConfig.direction);
+    });
+});
+
+function sortTable(column, direction) {
+    const tbody = document.getElementById('tableBody');
+    const allRows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Separate stock rows from detail rows
+    const stockRows = allRows.filter(row => row.classList.contains('stock-row'));
+    const detailRowsMap = {};
+    
+    // Map detail rows to their parent stock rows
+    allRows.forEach(row => {
+        if (row.classList.contains('detail-row')) {
+            const parentId = row.dataset.parent;
+            if (!detailRowsMap[parentId]) {
+                detailRowsMap[parentId] = [];
+            }
+            detailRowsMap[parentId].push(row);
+        }
+    });
+    
+    // Sort only the stock rows
+    stockRows.sort((a, b) => {
+        let aValue = a.dataset[column];
+        let bValue = b.dataset[column];
+        
+        // Convert to numbers for numeric columns
+        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend', 'rating'].includes(column)) {
+            aValue = parseFloat(aValue) || 0;
+            bValue = parseFloat(bValue) || 0;
+            return direction === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+        
+        // String comparison for text columns
+        aValue = aValue || '';
+        bValue = bValue || '';
+        const comparison = aValue.localeCompare(bValue);
+        return direction === 'asc' ? comparison : -comparison;
+    });
+    
+    // Re-insert sorted rows with their detail rows
+    stockRows.forEach(stockRow => {
+        tbody.appendChild(stockRow);
+        
+        // Append associated detail rows right after the stock row
+        const toggleId = stockRow.getAttribute('data-toggle');
+        if (detailRowsMap[toggleId]) {
+            detailRowsMap[toggleId].forEach(detailRow => {
+                tbody.appendChild(detailRow);
+            });
+        }
+    });
+}
+
+// Handle row expansion for Graham Number details
+document.querySelectorAll('tr.stock-row').forEach(row => {
+    row.addEventListener('click', function(e) {
+        // Don't toggle if clicking on action buttons
+        if (e.target.closest('.action-dropdown') || e.target.closest('form')) {
+            return;
+        }
+        toggleStockDetails(this);
+    });
+});
+
+function toggleStockDetails(stockRow) {
+    const toggleId = stockRow.getAttribute('data-toggle');
+    const symbol = stockRow.getAttribute('data-symbol');
+    const detailRows = document.querySelectorAll(`.detail-row[data-parent="${toggleId}"]`);
+    const toggleArrow = stockRow.querySelector('.toggle-arrow');
+    
+    // Toggle visibility
+    const isHidden = detailRows[0] && detailRows[0].style.display === 'none';
+    detailRows.forEach(row => {
+        row.style.display = isHidden ? 'table-row' : 'none';
+    });
+    
+    // Rotate arrow
+    if (toggleArrow) {
+        toggleArrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+        toggleArrow.style.transition = 'transform 0.2s ease';
+    }
+    
+    // Fetch Graham metrics on-demand if empty
+    if (isHidden && symbol) {
+        fetchGrahamMetricsForSymbol(symbol, toggleId);
+    }
+}
+
+function fetchGrahamMetricsForSymbol(symbol, toggleId) {
+    // Fetch Graham metrics for this symbol (they may not be cached)
+    fetch(`/api/graham-metrics/${symbol}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.rating_score !== undefined) {
+                // Update the detail row with the fetched metrics
+                const detailRow = document.querySelector(`.detail-row[data-parent="${toggleId}"]`);
+                if (detailRow) {
+                    updateDetailRowMetrics(detailRow, data);
+                }
+            }
+        })
+        .catch(err => console.error('Failed to fetch Graham metrics:', err));
+}
+
+function updateDetailRowMetrics(detailRow, metrics) {
+    // Update Financial Ratios section
+    const ratioLabels = ['Size in Sales', 'Current Assets ÷ 2x Liabilities', 'Net Current Assets ÷ LT Debt', 
+                         '2x Equity ÷ Debt', 'Size in Assets', 'Earnings Stability', 'Dividend Record', 'Earnings Growth'];
+    const ratioValues = [metrics.size_in_sales, metrics.current_assets_to_2x_liabilities, metrics.net_current_assets_to_ltdebt,
+                         metrics.equity_to_debt, metrics.size_in_assets, metrics.earnings_stability, metrics.dividend_record, metrics.earnings_growth];
+    
+    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(2)');
+    if (ratioDiv) {
+        ratioDiv.querySelectorAll('div').forEach((div, idx) => {
+            if (idx < ratioLabels.length && ratioValues[idx] !== undefined && ratioValues[idx] !== null) {
+                const span = div.querySelector('span');
+                if (span) {
+                    const value = ratioValues[idx];
+                    const formatted = idx === 4 ? // Size in Assets
+                        parseFloat(value).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) :
+                        parseFloat(value).toFixed(2);
+                    span.textContent = formatted + '%';
+                }
+            }
+        });
+    }
+    
+    // Update Graham Values section
+    const grahamDiv = detailRow.querySelector('div:nth-child(2) > div:nth-child(2)');
+    if (grahamDiv) {
+        const divs = grahamDiv.querySelectorAll('div');
+        if (divs[0] && metrics.graham_number_percent !== undefined) {
+            const span = divs[0].querySelector('span');
+            if (span) span.textContent = parseFloat(metrics.graham_number_percent).toFixed(2) + '%';
+        }
+        if (divs[1] && metrics.ncav_or_net_net !== undefined) {
+            const span = divs[1].querySelector('span');
+            if (span) span.textContent = parseFloat(metrics.ncav_or_net_net).toFixed(2) + '%';
+        }
+    }
+}
+
+// Handle action menu toggles for research table
+document.addEventListener('DOMContentLoaded', function() {
+    const actionToggles = document.querySelectorAll('.action-toggle');
+    
+    actionToggles.forEach(toggle => {
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const symbol = this.getAttribute('data-symbol');
+            const menu = document.getElementById(`actions-${symbol}`);
+            
+            // Close other open menus
+            document.querySelectorAll('.action-menu').forEach(m => {
+                if (m.id !== `actions-${symbol}`) {
+                    m.style.display = 'none';
+                }
+            });
+            
+            // Toggle current menu
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+    });
+    
+    // Close menus when clicking outside
+    document.querySelectorAll('.action-menu').forEach(menu => {
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.action-dropdown')) {
+                menu.style.display = 'none';
+            }
+        });
+    });
+});
+
+// Cache download and progress tracking
+function startCacheDownload() {
+    const downloadBtn = document.getElementById('download-btn');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressStatus = document.getElementById('progress-status');
+    const progressDetails = document.getElementById('progress-details');
+    const cacheStatus = document.getElementById('cache-status');
+    
+    // Disable button and show progress
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Downloading...';
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressStatus.textContent = 'Initializing...';
+    progressDetails.textContent = '';
+    
+    // Create EventSource to receive progress updates
+    const eventSource = new EventSource('/api/cache-stocks');
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            
+            if (data.status === 'fetching_tickers') {
+                progressStatus.textContent = data.message;
+            } 
+            else if (data.status === 'fetching_started') {
+                progressStatus.textContent = data.message;
+                progressDetails.textContent = `Total stocks to process: ${data.total}`;
+            }
+            else if (data.status === 'progress') {
+                const percent = data.percent || 0;
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = percent + '%';
+                progressStatus.textContent = `Processing: ${data.processed}/${data.total}`;
+                progressDetails.textContent = `Successfully cached: ${data.successful} stocks`;
+            }
+            else if (data.status === 'complete') {
+                const percent = 100;
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = percent + '%';
+                progressStatus.textContent = '✓ Download Complete!';
+                progressDetails.innerHTML = `<strong style="color: #27ae60;">${data.successful} stocks successfully cached!</strong>`;
+                cacheStatus.textContent = `${data.successful} stocks cached`;
+                cacheStatus.style.color = '#27ae60';
+                
+                // Close event source
+                eventSource.close();
+                
+                // Re-enable button after a short delay
+                setTimeout(() => {
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = '📥 Download Stock Data';
+                    // Optionally hide progress bar after a few seconds
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                    }, 3000);
+                }, 1000);
+            }
+            else if (data.status === 'error') {
+                progressStatus.textContent = '✗ Error occurred';
+                progressDetails.innerHTML = `<strong style="color: #e74c3c;">${data.message}</strong>`;
+                eventSource.close();
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = '📥 Download Stock Data';
+            }
+        } catch (e) {
+            console.error('Error parsing progress data:', e);
+        }
+    };
+    
+    eventSource.onerror = function(event) {
+        console.error('EventSource error:', event);
+        progressStatus.textContent = '✗ Connection error';
+        progressDetails.textContent = 'The connection was lost. This often happens when the cache download is taking too long. Check the browser console for details.';
+        eventSource.close();
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = '📥 Download Stock Data';
+    };
+}
+
+function resetFilters() {
+    document.getElementById('market_cap_min').value = '0';
+    document.getElementById('market_cap_max').value = '10000000';
+    document.getElementById('distance_min_slider').value = '0';
+    document.getElementById('distance_max_slider').value = '100';
+    document.getElementById('distance_min').value = '0';
+    document.getElementById('distance_max').value = '100';
+    document.getElementById('distance_display').textContent = '0.0% - 100.0%';
+    document.getElementById('forward_pe_max').value = '100';
+    document.getElementById('rating_score_min').value = '0';
+    document.getElementById('rating_score_max').value = '100';
+}
+
+// Scheduler functions
+function toggleSchedulerSettings() {
+    const settingsDiv = document.getElementById('scheduler-settings');
+    const toggleText = document.getElementById('scheduler-toggle-text');
+    
+    if (settingsDiv.style.display === 'none') {
+        settingsDiv.style.display = 'block';
+        toggleText.textContent = 'Hide Settings';
+        loadSchedulerSettings();
+    } else {
+        settingsDiv.style.display = 'none';
+        toggleText.textContent = 'Show Settings';
+    }
+}
+
+function loadSchedulerSettings() {
+    fetch('/api/cache-scheduler/config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('scheduler-status').textContent = `Error: ${data.error}`;
+                return;
+            }
+            
+            document.getElementById('scheduler-enabled').checked = data.enabled;
+            document.getElementById('scheduler-day').value = data.day_of_week;
+            document.getElementById('scheduler-hour').value = data.hour;
+            document.getElementById('scheduler-minute').value = data.minute;
+            
+            let statusText = `Scheduler ${data.enabled ? '✓ enabled' : '✗ disabled'}`;
+            if (data.last_run) {
+                const lastRun = new Date(data.last_run).toLocaleString();
+                statusText += `<br>Last run: ${lastRun}`;
+            }
+            if (data.next_run) {
+                const nextRun = new Date(data.next_run).toLocaleString();
+                statusText += `<br>Next run: ${nextRun}`;
+            }
+            
+            document.getElementById('scheduler-status').innerHTML = statusText;
+        })
+        .catch(error => {
+            document.getElementById('scheduler-status').textContent = `Error loading settings: ${error}`;
+        });
+}
+
+function saveSchedulerSettings() {
+    const settings = {
+        enabled: document.getElementById('scheduler-enabled').checked,
+        day_of_week: parseInt(document.getElementById('scheduler-day').value),
+        hour: parseInt(document.getElementById('scheduler-hour').value),
+        minute: parseInt(document.getElementById('scheduler-minute').value)
+    };
+    
+    fetch('/api/cache-scheduler/config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('scheduler-status').textContent = `❌ Error: ${data.error}`;
+                return;
+            }
+            
+            document.getElementById('scheduler-status').textContent = `✓ ${data.message}`;
+            loadSchedulerSettings();
+        })
+        .catch(error => {
+            document.getElementById('scheduler-status').textContent = `❌ Error saving settings: ${error}`;
+        });
+}
+
+// Load scheduler settings on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Don't load scheduler settings on load - user can expand settings if needed
+});
+</script>
+
+{% endblock %}
+
