@@ -1550,8 +1550,12 @@ def research():
     
     # Get filter parameters from query string with defaults
     symbols_input = request.args.get('symbols', '').strip()
-    market_cap_min = request.args.get('market_cap_min', 0, type=float)  # Default 0M (no minimum)
-    market_cap_max = request.args.get('market_cap_max', 10000000, type=float)  # Default 10000000M (essentially unlimited)
+    # Market cap is provided in MILLIONS from the form, so convert to BILLIONS for comparison
+    market_cap_min_millions = request.args.get('market_cap_min', 0, type=float)  # Default 0M (no minimum)
+    market_cap_max_millions = request.args.get('market_cap_max', 10000000, type=float)  # Default 10000000M (essentially unlimited)
+    market_cap_min = market_cap_min_millions / 1000  # Convert to billions
+    market_cap_max = market_cap_max_millions / 1000  # Convert to billions
+    
     distance_min = request.args.get('distance_min', 0, type=float)  # Default 0%
     distance_max = request.args.get('distance_max', 100, type=float)  # Default 100% (entire 52-week range)
     forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
@@ -1693,8 +1697,8 @@ def research():
                          error_message=error_message,
                          cache_status=cache_status,
                          symbols=symbols_input,
-                         market_cap_min=market_cap_min,
-                         market_cap_max=market_cap_max,
+                         market_cap_min=market_cap_min_millions,
+                         market_cap_max=market_cap_max_millions,
                          distance_min=distance_min,
                          distance_max=distance_max,
                          forward_pe_max=forward_pe_max)
