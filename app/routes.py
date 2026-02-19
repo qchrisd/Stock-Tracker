@@ -12,16 +12,19 @@ main_bp = Blueprint('main', __name__)
 
 import time
 
-# Global rate limiter for Graham metrics scraping
+# Global rate limiter for Graham metrics scraping (used during bulk download)
 _graham_last_request_time = 0
 _graham_request_lock = None
 
-def get_graham_metrics_from_grahamvalue(symbol):
+def get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=True):
     """
     Scrape comprehensive Graham metrics from grahamvalue.com
     Returns dict with all Graham rating metrics, or empty dict if scraping fails
     
-    NOTE: Rate-limited to 1 request per 5 seconds to avoid overloading GrahamValue.com
+    Args:
+        symbol: Stock ticker symbol
+        apply_rate_limit: If True, enforces rate limiting. Set to False when calling from cache_stocks
+                         which handles its own sequential rate limiting.
     """
     global _graham_last_request_time, _graham_request_lock
     
@@ -30,12 +33,14 @@ def get_graham_metrics_from_grahamvalue(symbol):
         _graham_request_lock = threading.Lock()
     
     try:
-        # Rate limiting: enforce 1 request per 5 seconds
-        with _graham_request_lock:
-            elapsed = time.time() - _graham_last_request_time
-            if elapsed < 5:
-                time.sleep(5 - elapsed)
-            _graham_last_request_time = time.time()
+        # Rate limiting: only apply when not in bulk cache mode
+        # Bulk cache handles its own sequential rate limiting
+        if apply_rate_limit:
+            with _graham_request_lock:
+                elapsed = time.time() - _graham_last_request_time
+                if elapsed < 5:
+                    time.sleep(5 - elapsed)
+                _graham_last_request_time = time.time()
         
         url = f"https://www.grahamvalue.com/stock/{symbol.lower()}"
         headers = {
@@ -1211,13 +1216,14 @@ def cache_stocks():
     app = current_app._get_current_object()
     
     def fetch_stock_data(symbol, attempt=1):
-        """Fetch financial data for a single stock with retry logic"""
+        """Fetch financial data and Graham metrics for a single stock with retry logic"""
         max_attempts = 3
         
         try:
-            # Add delay to respect yfinance rate limits
+            # Add delay to respect rate limits (same for both sources)
             time.sleep(0.2)
             
+            # Fetch yfinance data
             ticker = yf.Ticker(symbol)
             
             try:
@@ -1254,6 +1260,15 @@ def cache_stocks():
             market_cap = info.get('marketCap')
             market_cap_billions = (market_cap / 1_000_000_000) if market_cap and market_cap > 0 else None
             
+            # Fetch Graham metrics (with rate limiting disabled - handled sequentially here)
+            graham_metrics = {}
+            try:
+                graham_metrics = get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=False) or {}
+            except Exception as e:
+                print(f"Warning: Failed to fetch Graham metrics for {symbol}: {str(e)[:80]}")
+                # Don't fail the entire stock if Graham metrics fail - just skip them
+                graham_metrics = {}
+            
             return {
                 'symbol': symbol,
                 'name': info.get('longName', symbol),
@@ -1268,7 +1283,20 @@ def cache_stocks():
                 'price_52w_high': price_52w_high,
                 'distance_from_low': distance_from_low,
                 'eps': info.get('trailingEps'),
-                'book_value_per_share': info.get('bookValue')
+                'book_value_per_share': info.get('bookValue'),
+                # Graham metrics
+                'graham_number': graham_metrics.get('graham_number'),
+                'rating_score': graham_metrics.get('rating_score'),
+                'size_in_sales': graham_metrics.get('size_in_sales'),
+                'current_assets_to_2x_liabilities': graham_metrics.get('current_assets_to_2x_liabilities'),
+                'net_current_assets_to_ltdebt': graham_metrics.get('net_current_assets_to_ltdebt'),
+                'earnings_stability': graham_metrics.get('earnings_stability'),
+                'dividend_record': graham_metrics.get('dividend_record'),
+                'earnings_growth': graham_metrics.get('earnings_growth'),
+                'graham_number_percent': graham_metrics.get('graham_number_percent'),
+                'ncav_or_net_net': graham_metrics.get('ncav_or_net_net'),
+                'equity_to_debt': graham_metrics.get('equity_to_debt'),
+                'size_in_assets': graham_metrics.get('size_in_assets')
             }
         except Exception as e:
             print(f"Error fetching {symbol}: {str(e)[:100]}")
@@ -1322,19 +1350,19 @@ def cache_stocks():
                                 distance_from_low=result['distance_from_low'],
                                 eps=result['eps'],
                                 book_value_per_share=result['book_value_per_share'],
-                                # Graham metrics left as None (fetched on-demand)
-                                graham_number=None,
-                                rating_score=None,
-                                size_in_sales=None,
-                                current_assets_to_2x_liabilities=None,
-                                net_current_assets_to_ltdebt=None,
-                                earnings_stability=None,
-                                dividend_record=None,
-                                earnings_growth=None,
-                                graham_number_percent=None,
-                                ncav_or_net_net=None,
-                                equity_to_debt=None,
-                                size_in_assets=None
+                                # Graham metrics (now fetched during cache download)
+                                graham_number=result.get('graham_number'),
+                                rating_score=result.get('rating_score'),
+                                size_in_sales=result.get('size_in_sales'),
+                                current_assets_to_2x_liabilities=result.get('current_assets_to_2x_liabilities'),
+                                net_current_assets_to_ltdebt=result.get('net_current_assets_to_ltdebt'),
+                                earnings_stability=result.get('earnings_stability'),
+                                dividend_record=result.get('dividend_record'),
+                                earnings_growth=result.get('earnings_growth'),
+                                graham_number_percent=result.get('graham_number_percent'),
+                                ncav_or_net_net=result.get('ncav_or_net_net'),
+                                equity_to_debt=result.get('equity_to_debt'),
+                                size_in_assets=result.get('size_in_assets')
                             )
                             
                             batch.append(cache_entry)
