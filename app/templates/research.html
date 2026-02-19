@@ -89,6 +89,21 @@
                 <input type="number" id="forward_pe_max" name="forward_pe_max" min="0" step="1" 
                        value="{{ forward_pe_max }}" placeholder="Max P/E">
             </div>
+
+            <!-- Graham Rating Score Range -->
+            <div class="filter-group">
+                <label for="rating_score_min"><strong>Graham Rating Score Range</strong></label>
+                <div class="range-inputs">
+                    <input type="number" id="rating_score_min" name="rating_score_min" min="0" max="100" step="0.1" 
+                           value="{{ "%.1f"|format(rating_score_min) }}" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="rating_score_max" name="rating_score_max" min="0" max="100" step="0.1" 
+                           value="{{ "%.1f"|format(rating_score_max) }}" placeholder="Max">
+                </div>
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    Higher scores indicate better value. Typically 0-100 scale. Only affects stocks with cached Graham data.
+                </div>
+            </div>
         </div>
 
         <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -234,6 +249,8 @@ function resetFilters() {
     document.getElementById('distance_min_slider').value = 0;
     document.getElementById('distance_max_slider').value = 15;
     document.getElementById('forward_pe_max').value = 40;
+    document.getElementById('rating_score_min').value = 0;
+    document.getElementById('rating_score_max').value = 100;
     updateDistanceDisplay();
 }
 

@@ -1559,6 +1559,8 @@ def research():
     distance_min = request.args.get('distance_min', 0, type=float)  # Default 0%
     distance_max = request.args.get('distance_max', 100, type=float)  # Default 100% (entire 52-week range)
     forward_pe_max = request.args.get('forward_pe_max', 100, type=float)  # Default 100 (generous limit)
+    rating_score_min = request.args.get('rating_score_min', 0, type=float)  # Default 0 (no minimum)
+    rating_score_max = request.args.get('rating_score_max', 10, type=float)  # Default 100 (essentially unlimited)
     
     try:
         # Check if we have cached data
@@ -1649,11 +1651,20 @@ def research():
                 StockCache.distance_from_low <= distance_max
             ).all()
             
-            # Apply forward P/E filter (handling None values)
+            # Apply forward P/E and rating score filters (handling None values)
             for stock in cached_stocks:
                 forward_pe = stock.forward_pe or stock.trailing_pe or 0
                 if forward_pe == 0 or forward_pe > forward_pe_max:
                     continue
+                
+                # Filter by rating score if it exists
+                if stock.rating_score is not None:
+                    if not (rating_score_min <= stock.rating_score <= rating_score_max):
+                        continue
+                else:
+                    # Skip stocks with no rating score if a filter is applied
+                    if rating_score_min > 0 or rating_score_max < 100:
+                        continue
                 
                 suggestions.append({
                     'symbol': stock.symbol,
@@ -1701,4 +1712,6 @@ def research():
                          market_cap_max=market_cap_max_millions,
                          distance_min=distance_min,
                          distance_max=distance_max,
-                         forward_pe_max=forward_pe_max)
+                         forward_pe_max=forward_pe_max,
+                         rating_score_min=rating_score_min,
+                         rating_score_max=rating_score_max)
