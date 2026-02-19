@@ -33,6 +33,69 @@
     <div id="progress-details" style="margin-top: 10px; font-size: 12px; color: #7f8c8d;"></div>
 </div>
 
+<!-- Automated Cache Scheduler Settings -->
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h4 style="margin: 0;">⏰ Automated Cache Scheduler</h4>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSchedulerSettings()">
+            <span id="scheduler-toggle-text">Show Settings</span>
+        </button>
+    </div>
+    
+    <div id="scheduler-settings" style="display: none;">
+        <div style="margin-bottom: 15px; padding: 10px; background-color: white; border-radius: 4px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                <!-- Enable/Disable Toggle -->
+                <div>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="scheduler-enabled" style="margin-right: 8px; cursor: pointer;">
+                        <span><strong>Enable Scheduler</strong></span>
+                    </label>
+                </div>
+                
+                <!-- Day of Week Selector -->
+                <div>
+                    <label for="scheduler-day"><strong>Day</strong></label>
+                    <select id="scheduler-day" style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                </div>
+                
+                <!-- Hour Selector -->
+                <div>
+                    <label for="scheduler-hour"><strong>Hour (UTC)</strong></label>
+                    <input type="number" id="scheduler-hour" min="0" max="23" value="2" 
+                           style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </div>
+                
+                <!-- Minute Selector -->
+                <div>
+                    <label for="scheduler-minute"><strong>Minute</strong></label>
+                    <input type="number" id="scheduler-minute" min="0" max="59" value="0" 
+                           style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveSchedulerSettings()">
+                    💾 Save Settings
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="loadSchedulerSettings()">
+                    ↻ Reload
+                </button>
+            </div>
+            
+            <div id="scheduler-status" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+        </div>
+    </div>
+</div>
+
 {% if error_message %}
     <div style="background-color: #fadbd8; border: 1px solid #e74c3c; color: #c0392b; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
         <strong>Error:</strong> {{ error_message }}
@@ -586,7 +649,91 @@ function resetFilters() {
     document.getElementById('distance_max').value = '100';
     document.getElementById('distance_display').textContent = '0.0% - 100.0%';
     document.getElementById('forward_pe_max').value = '100';
+    document.getElementById('rating_score_min').value = '0';
+    document.getElementById('rating_score_max').value = '100';
 }
+
+// Scheduler functions
+function toggleSchedulerSettings() {
+    const settingsDiv = document.getElementById('scheduler-settings');
+    const toggleText = document.getElementById('scheduler-toggle-text');
+    
+    if (settingsDiv.style.display === 'none') {
+        settingsDiv.style.display = 'block';
+        toggleText.textContent = 'Hide Settings';
+        loadSchedulerSettings();
+    } else {
+        settingsDiv.style.display = 'none';
+        toggleText.textContent = 'Show Settings';
+    }
+}
+
+function loadSchedulerSettings() {
+    fetch('/api/cache-scheduler/config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('scheduler-status').textContent = `Error: ${data.error}`;
+                return;
+            }
+            
+            document.getElementById('scheduler-enabled').checked = data.enabled;
+            document.getElementById('scheduler-day').value = data.day_of_week;
+            document.getElementById('scheduler-hour').value = data.hour;
+            document.getElementById('scheduler-minute').value = data.minute;
+            
+            let statusText = `Scheduler ${data.enabled ? '✓ enabled' : '✗ disabled'}`;
+            if (data.last_run) {
+                const lastRun = new Date(data.last_run).toLocaleString();
+                statusText += `<br>Last run: ${lastRun}`;
+            }
+            if (data.next_run) {
+                const nextRun = new Date(data.next_run).toLocaleString();
+                statusText += `<br>Next run: ${nextRun}`;
+            }
+            
+            document.getElementById('scheduler-status').innerHTML = statusText;
+        })
+        .catch(error => {
+            document.getElementById('scheduler-status').textContent = `Error loading settings: ${error}`;
+        });
+}
+
+function saveSchedulerSettings() {
+    const settings = {
+        enabled: document.getElementById('scheduler-enabled').checked,
+        day_of_week: parseInt(document.getElementById('scheduler-day').value),
+        hour: parseInt(document.getElementById('scheduler-hour').value),
+        minute: parseInt(document.getElementById('scheduler-minute').value)
+    };
+    
+    fetch('/api/cache-scheduler/config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('scheduler-status').textContent = `❌ Error: ${data.error}`;
+                return;
+            }
+            
+            document.getElementById('scheduler-status').textContent = `✓ ${data.message}`;
+            loadSchedulerSettings();
+        })
+        .catch(error => {
+            document.getElementById('scheduler-status').textContent = `❌ Error saving settings: ${error}`;
+        });
+}
+
+// Load scheduler settings on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Don't load scheduler settings on load - user can expand settings if needed
+});
 </script>
 
 {% endblock %}
+

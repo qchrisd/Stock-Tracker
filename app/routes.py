@@ -3,7 +3,7 @@ from datetime import datetime
 import yfinance as yf
 import requests
 import json
-from app.models import db, Stock, Transaction, Account, StockCache
+from app.models import db, Stock, Transaction, Account, StockCache, CacheScheduler
 from bs4 import BeautifulSoup
 import re
 
@@ -1445,6 +1445,73 @@ def get_graham_metrics_api(symbol):
         
         return jsonify(metrics)
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/cache-scheduler/config', methods=['GET'])
+def get_cache_scheduler_config():
+    """Get current cache scheduler configuration"""
+    try:
+        scheduler = CacheScheduler.get_or_create()
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        return jsonify({
+            'enabled': scheduler.enabled,
+            'day_of_week': scheduler.day_of_week,
+            'day_name': day_names[scheduler.day_of_week],
+            'hour': scheduler.hour,
+            'minute': scheduler.minute,
+            'last_run': scheduler.last_run.isoformat() if scheduler.last_run else None,
+            'next_run': scheduler.next_run.isoformat() if scheduler.next_run else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@main_bp.route('/api/cache-scheduler/config', methods=['POST'])
+def update_cache_scheduler_config():
+    """Update cache scheduler configuration"""
+    try:
+        data = request.get_json()
+        scheduler = CacheScheduler.get_or_create()
+        
+        # Update fields
+        if 'enabled' in data:
+            scheduler.enabled = bool(data['enabled'])
+        if 'day_of_week' in data:
+            day = int(data['day_of_week'])
+            if 0 <= day <= 6:
+                scheduler.day_of_week = day
+            else:
+                return jsonify({'error': 'day_of_week must be 0-6'}), 400
+        if 'hour' in data:
+            hour = int(data['hour'])
+            if 0 <= hour <= 23:
+                scheduler.hour = hour
+            else:
+                return jsonify({'error': 'hour must be 0-23'}), 400
+        if 'minute' in data:
+            minute = int(data['minute'])
+            if 0 <= minute <= 59:
+                scheduler.minute = minute
+            else:
+                return jsonify({'error': 'minute must be 0-59'}), 400
+        
+        scheduler.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        return jsonify({
+            'success': True,
+            'message': f'Scheduler {"enabled" if scheduler.enabled else "disabled"}',
+            'enabled': scheduler.enabled,
+            'day_of_week': scheduler.day_of_week,
+            'day_name': day_names[scheduler.day_of_week],
+            'hour': scheduler.hour,
+            'minute': scheduler.minute
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

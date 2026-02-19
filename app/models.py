@@ -359,3 +359,35 @@ class StockCache(db.Model):
             'size_in_assets': self.size_in_assets,
             'rating_score': self.rating_score
         }
+
+
+class CacheScheduler(db.Model):
+    """Model for storing cache scheduler settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    enabled = db.Column(db.Boolean, default=False, nullable=False)  # Is the scheduler enabled?
+    day_of_week = db.Column(db.Integer, default=0, nullable=False)  # 0=Monday, 6=Sunday
+    hour = db.Column(db.Integer, default=2, nullable=False)  # Hour (0-23, in UTC)
+    minute = db.Column(db.Integer, default=0, nullable=False)  # Minute (0-59)
+    last_run = db.Column(db.DateTime)  # Last time cache was updated
+    next_run = db.Column(db.DateTime)  # Next scheduled run
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return f'<CacheScheduler enabled={self.enabled} {day_names[self.day_of_week]} {self.hour:02d}:{self.minute:02d}>'
+    
+    @staticmethod
+    def get_or_create():
+        """Get existing scheduler config or create default"""
+        scheduler = CacheScheduler.query.first()
+        if not scheduler:
+            scheduler = CacheScheduler(
+                enabled=False,
+                day_of_week=0,  # Monday
+                hour=2,  # 2 AM
+                minute=0
+            )
+            db.session.add(scheduler)
+            db.session.commit()
+        return scheduler
