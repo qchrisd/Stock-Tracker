@@ -10,17 +10,38 @@ import re
 main_bp = Blueprint('main', __name__)
 
 
+import time
+
+# Global rate limiter for Graham metrics scraping
+_graham_last_request_time = 0
+_graham_request_lock = None
+
 def get_graham_metrics_from_grahamvalue(symbol):
     """
     Scrape comprehensive Graham metrics from grahamvalue.com
     Returns dict with all Graham rating metrics, or empty dict if scraping fails
+    
+    NOTE: Rate-limited to 1 request per 5 seconds to avoid overloading GrahamValue.com
     """
+    global _graham_last_request_time, _graham_request_lock
+    
+    if _graham_request_lock is None:
+        import threading
+        _graham_request_lock = threading.Lock()
+    
     try:
+        # Rate limiting: enforce 1 request per 5 seconds
+        with _graham_request_lock:
+            elapsed = time.time() - _graham_last_request_time
+            if elapsed < 5:
+                time.sleep(5 - elapsed)
+            _graham_last_request_time = time.time()
+        
         url = f"https://www.grahamvalue.com/stock/{symbol.lower()}"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        # Increase timeout to 30 seconds
+        # Timeout to 30 seconds
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
@@ -1180,12 +1201,78 @@ def cache_stocks():
     """
     Server-Sent Events endpoint that downloads and caches financial data for all SEC stocks.
     Sends progress updates to the client.
+    Skips Graham metrics during bulk download for speed (fetched on-demand).
     """
     from flask import current_app
     import traceback
+    import time
     
     # Get the app while we're still in the request context
     app = current_app._get_current_object()
+    
+    def fetch_stock_data(symbol, attempt=1):
+        """Fetch financial data for a single stock with retry logic"""
+        max_attempts = 3
+        
+        try:
+            # Add delay to respect yfinance rate limits
+            time.sleep(0.2)
+            
+            ticker = yf.Ticker(symbol)
+            
+            try:
+                hist = ticker.history(period='1y', timeout=10)
+                if hist.empty or len(hist) < 200:
+                    return None
+            except Exception as e:
+                error_str = str(e).lower()
+                # Retry on rate limiting or temp errors
+                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
+                    time.sleep(2)  # Wait before retry
+                    return fetch_stock_data(symbol, attempt + 1)
+                return None
+            
+            try:
+                info = ticker.info
+                if not info or 'symbol' not in info:
+                    return None
+            except Exception as e:
+                error_str = str(e).lower()
+                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
+                    time.sleep(2)
+                    return fetch_stock_data(symbol, attempt + 1)
+                return None
+            
+            current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
+            price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
+            price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
+            
+            if not current_price or not price_52w_low or current_price <= 0 or price_52w_low <= 0:
+                return None
+            
+            distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
+            market_cap = info.get('marketCap')
+            market_cap_billions = (market_cap / 1_000_000_000) if market_cap and market_cap > 0 else None
+            
+            return {
+                'symbol': symbol,
+                'name': info.get('longName', symbol),
+                'sector': info.get('sector', 'N/A'),
+                'market_cap': market_cap,
+                'market_cap_billions': market_cap_billions,
+                'forward_pe': info.get('forwardPE'),
+                'trailing_pe': info.get('trailingPE'),
+                'dividend_yield': info.get('dividendYield', 0),
+                'current_price': current_price,
+                'price_52w_low': price_52w_low,
+                'price_52w_high': price_52w_high,
+                'distance_from_low': distance_from_low,
+                'eps': info.get('trailingEps'),
+                'book_value_per_share': info.get('bookValue')
+            }
+        except Exception as e:
+            print(f"Error fetching {symbol}: {str(e)[:100]}")
+            return None
     
     def generate_progress():
         # Create an app context for the generator execution
@@ -1201,100 +1288,60 @@ def cache_stocks():
                     yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
                     return
                 
-                yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities...'})}\n\n"
+                yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities (this may take a few minutes)...'})}\n\n"
                 
                 # Clear old cache
                 StockCache.query.delete()
                 db.session.commit()
                 
-                processed = 0
                 successful = 0
-                batch = []  # Batch of entries to add
+                batch = []
+                processed = 0
                 
+                # Sequential processing: more reliable with yfinance than concurrent
+                # Process stocks one at a time with proper delays
                 for symbol in symbols:
                     processed += 1
+                    
                     try:
-                        # Fetch data with timeout
-                        ticker = yf.Ticker(symbol)
+                        result = fetch_stock_data(symbol)
                         
-                        try:
-                            # Fetch historical data (1 year)
-                            hist = ticker.history(period='1y', timeout=5)
-                            if len(hist) < 200:
-                                continue
-                        except Exception:
-                            continue
+                        if result:
+                            cache_entry = StockCache(
+                                symbol=result['symbol'],
+                                name=result['name'],
+                                sector=result['sector'],
+                                market_cap=result['market_cap'],
+                                market_cap_billions=result['market_cap_billions'],
+                                forward_pe=result['forward_pe'],
+                                trailing_pe=result['trailing_pe'],
+                                dividend_yield=result['dividend_yield'],
+                                current_price=result['current_price'],
+                                price_52w_low=result['price_52w_low'],
+                                price_52w_high=result['price_52w_high'],
+                                distance_from_low=result['distance_from_low'],
+                                eps=result['eps'],
+                                book_value_per_share=result['book_value_per_share'],
+                                # Graham metrics left as None (fetched on-demand)
+                                graham_number=None,
+                                rating_score=None,
+                                size_in_sales=None,
+                                current_assets_to_2x_liabilities=None,
+                                net_current_assets_to_ltdebt=None,
+                                earnings_stability=None,
+                                dividend_record=None,
+                                earnings_growth=None,
+                                graham_number_percent=None,
+                                ncav_or_net_net=None,
+                                equity_to_debt=None,
+                                size_in_assets=None
+                            )
+                            
+                            batch.append(cache_entry)
+                            successful += 1
                         
-                        try:
-                            # Fetch info
-                            info = ticker.info
-                        except Exception:
-                            continue
-                        
-                        # Calculate metrics
-                        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
-                        price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
-                        price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
-                        
-                        if not current_price or not price_52w_low:
-                            continue
-                        
-                        distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
-                        
-                        market_cap = info.get('marketCap')
-                        market_cap_billions = (market_cap / 1_000_000_000) if market_cap else None
-                        
-                        forward_pe = info.get('forwardPE')
-                        trailing_pe = info.get('trailingPE')
-                        dividend_yield = info.get('dividendYield', 0)
-                        eps = info.get('trailingEps')
-                        book_value_per_share = info.get('bookValue')
-                        
-                        # Fetch Graham metrics from GrahamValue
-                        graham_data = {}
-                        try:
-                            graham_data = get_graham_metrics_from_grahamvalue(symbol)
-                        except Exception:
-                            graham_data = {}
-                        
-                        graham_number = graham_data.get('graham_number') if graham_data else None
-                        rating_score = graham_data.get('rating_score') if graham_data else None
-                        
-                        # Create cache entry
-                        cache_entry = StockCache(
-                            symbol=symbol,
-                            name=info.get('longName', symbol),
-                            sector=info.get('sector', 'N/A'),
-                            market_cap=market_cap,
-                            market_cap_billions=market_cap_billions,
-                            forward_pe=forward_pe,
-                            trailing_pe=trailing_pe,
-                            dividend_yield=dividend_yield,
-                            current_price=current_price,
-                            price_52w_low=price_52w_low,
-                            price_52w_high=price_52w_high,
-                            distance_from_low=distance_from_low,
-                            eps=eps,
-                            book_value_per_share=book_value_per_share,
-                            graham_number=graham_number,
-                            rating_score=rating_score,
-                            size_in_sales=graham_data.get('size_in_sales') if graham_data else None,
-                            current_assets_to_2x_liabilities=graham_data.get('current_assets_to_2x_liabilities') if graham_data else None,
-                            net_current_assets_to_ltdebt=graham_data.get('net_current_assets_to_ltdebt') if graham_data else None,
-                            earnings_stability=graham_data.get('earnings_stability') if graham_data else None,
-                            dividend_record=graham_data.get('dividend_record') if graham_data else None,
-                            earnings_growth=graham_data.get('earnings_growth') if graham_data else None,
-                            graham_number_percent=graham_data.get('graham_number_percent') if graham_data else None,
-                            ncav_or_net_net=graham_data.get('ncav_or_net_net') if graham_data else None,
-                            equity_to_debt=graham_data.get('equity_to_debt') if graham_data else None,
-                            size_in_assets=graham_data.get('size_in_assets') if graham_data else None
-                        )
-                        
-                        batch.append(cache_entry)
-                        successful += 1
-                        
-                        # Commit every 10 stocks
-                        if successful % 10 == 0:
+                        # Commit every 25 stocks and send progress update
+                        if processed % 25 == 0:
                             for entry in batch:
                                 db.session.add(entry)
                             db.session.commit()
@@ -1302,8 +1349,8 @@ def cache_stocks():
                             yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
                     
                     except Exception as e:
-                        # Skip stocks with errors - don't print
-                        pass
+                        print(f"Exception processing {symbol}: {str(e)[:100]}")
+                        continue
                 
                 # Final commit for remaining batch
                 if batch:
@@ -1324,6 +1371,54 @@ def cache_stocks():
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no'
     })
+
+
+@main_bp.route('/api/graham-metrics/<symbol>')
+def get_graham_metrics_api(symbol):
+    """API endpoint to fetch Graham metrics for a single stock on-demand"""
+    try:
+        # Try to get from cache first
+        cached = StockCache.query.filter_by(symbol=symbol).first()
+        if cached and cached.rating_score is not None:
+            # Already cached with metrics
+            return jsonify({
+                'graham_number': cached.graham_number,
+                'rating_score': cached.rating_score,
+                'size_in_sales': cached.size_in_sales,
+                'current_assets_to_2x_liabilities': cached.current_assets_to_2x_liabilities,
+                'net_current_assets_to_ltdebt': cached.net_current_assets_to_ltdebt,
+                'earnings_stability': cached.earnings_stability,
+                'dividend_record': cached.dividend_record,
+                'earnings_growth': cached.earnings_growth,
+                'graham_number_percent': cached.graham_number_percent,
+                'ncav_or_net_net': cached.ncav_or_net_net,
+                'equity_to_debt': cached.equity_to_debt,
+                'size_in_assets': cached.size_in_assets
+            })
+        
+        # Fetch from GrahamValue
+        metrics = get_graham_metrics_from_grahamvalue(symbol) or {}
+        
+        # Update cache if it exists
+        if cached:
+            cached.graham_number = metrics.get('graham_number')
+            cached.rating_score = metrics.get('rating_score')
+            cached.size_in_sales = metrics.get('size_in_sales')
+            cached.current_assets_to_2x_liabilities = metrics.get('current_assets_to_2x_liabilities')
+            cached.net_current_assets_to_ltdebt = metrics.get('net_current_assets_to_ltdebt')
+            cached.earnings_stability = metrics.get('earnings_stability')
+            cached.dividend_record = metrics.get('dividend_record')
+            cached.earnings_growth = metrics.get('earnings_growth')
+            cached.graham_number_percent = metrics.get('graham_number_percent')
+            cached.ncav_or_net_net = metrics.get('ncav_or_net_net')
+            cached.equity_to_debt = metrics.get('equity_to_debt')
+            cached.size_in_assets = metrics.get('size_in_assets')
+            db.session.commit()
+        
+        return jsonify(metrics)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 

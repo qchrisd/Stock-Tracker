@@ -369,6 +369,7 @@ document.querySelectorAll('tr.stock-row').forEach(row => {
 
 function toggleStockDetails(stockRow) {
     const toggleId = stockRow.getAttribute('data-toggle');
+    const symbol = stockRow.getAttribute('data-symbol');
     const detailRows = document.querySelectorAll(`.detail-row[data-parent="${toggleId}"]`);
     const toggleArrow = stockRow.querySelector('.toggle-arrow');
     
@@ -384,8 +385,64 @@ function toggleStockDetails(stockRow) {
         toggleArrow.style.transition = 'transform 0.2s ease';
     }
     
-    // Toggle active class for styling
-    stockRow.classList.toggle('expanded', isHidden);
+    // Fetch Graham metrics on-demand if empty
+    if (isHidden && symbol) {
+        fetchGrahamMetricsForSymbol(symbol, toggleId);
+    }
+}
+
+function fetchGrahamMetricsForSymbol(symbol, toggleId) {
+    // Fetch Graham metrics for this symbol (they may not be cached)
+    fetch(`/api/graham-metrics/${symbol}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.rating_score !== undefined) {
+                // Update the detail row with the fetched metrics
+                const detailRow = document.querySelector(`.detail-row[data-parent="${toggleId}"]`);
+                if (detailRow) {
+                    updateDetailRowMetrics(detailRow, data);
+                }
+            }
+        })
+        .catch(err => console.error('Failed to fetch Graham metrics:', err));
+}
+
+function updateDetailRowMetrics(detailRow, metrics) {
+    // Update Financial Ratios section
+    const ratioLabels = ['Size in Sales', 'Current Assets ÷ 2x Liabilities', 'Net Current Assets ÷ LT Debt', 
+                         '2x Equity ÷ Debt', 'Size in Assets', 'Earnings Stability', 'Dividend Record', 'Earnings Growth'];
+    const ratioValues = [metrics.size_in_sales, metrics.current_assets_to_2x_liabilities, metrics.net_current_assets_to_ltdebt,
+                         metrics.equity_to_debt, metrics.size_in_assets, metrics.earnings_stability, metrics.dividend_record, metrics.earnings_growth];
+    
+    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(2)');
+    if (ratioDiv) {
+        ratioDiv.querySelectorAll('div').forEach((div, idx) => {
+            if (idx < ratioLabels.length && ratioValues[idx] !== undefined && ratioValues[idx] !== null) {
+                const span = div.querySelector('span');
+                if (span) {
+                    const value = ratioValues[idx];
+                    const formatted = idx === 4 ? // Size in Assets
+                        parseFloat(value).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) :
+                        parseFloat(value).toFixed(2);
+                    span.textContent = formatted + '%';
+                }
+            }
+        });
+    }
+    
+    // Update Graham Values section
+    const grahamDiv = detailRow.querySelector('div:nth-child(2) > div:nth-child(2)');
+    if (grahamDiv) {
+        const divs = grahamDiv.querySelectorAll('div');
+        if (divs[0] && metrics.graham_number_percent !== undefined) {
+            const span = divs[0].querySelector('span');
+            if (span) span.textContent = parseFloat(metrics.graham_number_percent).toFixed(2) + '%';
+        }
+        if (divs[1] && metrics.ncav_or_net_net !== undefined) {
+            const span = divs[1].querySelector('span');
+            if (span) span.textContent = parseFloat(metrics.ncav_or_net_net).toFixed(2) + '%';
+        }
+    }
 }
 
 // Handle action menu toggles for research table
