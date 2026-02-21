@@ -494,7 +494,7 @@ function updateDetailRowMetrics(detailRow, metrics) {
     const ratioValues = [metrics.size_in_sales, metrics.current_assets_to_2x_liabilities, metrics.net_current_assets_to_ltdebt,
                          metrics.equity_to_debt, metrics.size_in_assets, metrics.earnings_stability, metrics.dividend_record, metrics.earnings_growth];
     
-    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(2)');
+    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(3) > div:nth-child(2)');
     if (ratioDiv) {
         ratioDiv.querySelectorAll('div').forEach((div, idx) => {
             if (idx < ratioLabels.length && ratioValues[idx] !== undefined && ratioValues[idx] !== null) {
@@ -511,7 +511,7 @@ function updateDetailRowMetrics(detailRow, metrics) {
     }
     
     // Update Graham Values section
-    const grahamDiv = detailRow.querySelector('div:nth-child(2) > div:nth-child(2)');
+    const grahamDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(4) > div:nth-child(2)');
     if (grahamDiv) {
         const divs = grahamDiv.querySelectorAll('div');
         if (divs[0] && metrics.graham_number_percent !== undefined) {
