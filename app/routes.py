@@ -1695,8 +1695,8 @@ def get_cache_scheduler_config():
             'day_name': day_names[et_day],
             'hour': et_hour,
             'minute': et_min,
-            'last_run': scheduler.last_run.isoformat() if scheduler.last_run else None,
-            'next_run': scheduler.next_run.isoformat() if scheduler.next_run else None
+            'last_run': (scheduler.last_run.isoformat() + 'Z') if scheduler.last_run else None,
+            'next_run': (scheduler.next_run.isoformat() + 'Z') if scheduler.next_run else None
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1736,6 +1736,12 @@ def update_cache_scheduler_config():
         scheduler.hour = utc_hour
         scheduler.minute = utc_min
 
+        # Immediately recompute next_run so the UI reflects the new day/time right away
+        if scheduler.enabled:
+            scheduler.next_run = _compute_next_utc_run(utc_day, utc_hour, utc_min).replace(tzinfo=None)
+        else:
+            scheduler.next_run = None
+
         scheduler.updated_at = datetime.utcnow()
         db.session.commit()
 
@@ -1748,7 +1754,9 @@ def update_cache_scheduler_config():
             'day_of_week': et_day,
             'day_name': day_names[et_day],
             'hour': et_hour,
-            'minute': et_min
+            'minute': et_min,
+            'last_run': (scheduler.last_run.isoformat() + 'Z') if scheduler.last_run else None,
+            'next_run': (scheduler.next_run.isoformat() + 'Z') if scheduler.next_run else None
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

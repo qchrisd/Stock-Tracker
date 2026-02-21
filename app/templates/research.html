@@ -732,9 +732,21 @@ function saveSchedulerSettings() {
                 document.getElementById('scheduler-status').textContent = `❌ Error: ${data.error}`;
                 return;
             }
-            
-            document.getElementById('scheduler-status').textContent = `✓ ${data.message}`;
-            loadSchedulerSettings();
+
+            // Update last-download timestamp if last_run came back
+            const lastDownloadEl = document.getElementById('last-download-time');
+            if (data.last_run) {
+                lastDownloadEl.textContent = new Date(data.last_run).toLocaleString('en-US', { timeZone: 'America/New_York' }) + ' ET';
+            }
+
+            let statusText = `✓ ${data.message}`;
+            if (data.last_run) {
+                statusText += `<br>Last run: ${new Date(data.last_run).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`;
+            }
+            if (data.next_run) {
+                statusText += `<br>Next run: ${new Date(data.next_run).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`;
+            }
+            document.getElementById('scheduler-status').innerHTML = statusText;
         })
         .catch(error => {
             document.getElementById('scheduler-status').textContent = `❌ Error saving settings: ${error}`;
