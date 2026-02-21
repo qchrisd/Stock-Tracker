@@ -35,11 +35,14 @@
 
 <!-- Automated Cache Scheduler Settings -->
 <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
         <h4 style="margin: 0;">⏰ Automated Cache Scheduler</h4>
         <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSchedulerSettings()">
             <span id="scheduler-toggle-text">Show Settings</span>
         </button>
+    </div>
+    <div style="margin-bottom: 15px;">
+        <span id="last-download-label" style="font-size: 12px; color: #6c757d;">Last download: <span id="last-download-time">Loading...</span></span>
     </div>
     
     <div id="scheduler-settings" style="display: none;">
@@ -69,7 +72,7 @@
                 
                 <!-- Hour Selector -->
                 <div>
-                    <label for="scheduler-hour"><strong>Hour (UTC)</strong></label>
+                    <label for="scheduler-hour"><strong>Hour (ET)</strong></label>
                     <input type="number" id="scheduler-hour" min="0" max="23" value="2" 
                            style="width: 100%; padding: 6px; border: 1px solid #bdc3c7; border-radius: 4px;">
                 </div>
@@ -494,7 +497,7 @@ function updateDetailRowMetrics(detailRow, metrics) {
     const ratioValues = [metrics.size_in_sales, metrics.current_assets_to_2x_liabilities, metrics.net_current_assets_to_ltdebt,
                          metrics.equity_to_debt, metrics.size_in_assets, metrics.earnings_stability, metrics.dividend_record, metrics.earnings_growth];
     
-    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(2)');
+    const ratioDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(3) > div:nth-child(2)');
     if (ratioDiv) {
         ratioDiv.querySelectorAll('div').forEach((div, idx) => {
             if (idx < ratioLabels.length && ratioValues[idx] !== undefined && ratioValues[idx] !== null) {
@@ -511,7 +514,7 @@ function updateDetailRowMetrics(detailRow, metrics) {
     }
     
     // Update Graham Values section
-    const grahamDiv = detailRow.querySelector('div:nth-child(2) > div:nth-child(2)');
+    const grahamDiv = detailRow.querySelector('div:nth-child(1) > div:nth-child(4) > div:nth-child(2)');
     if (grahamDiv) {
         const divs = grahamDiv.querySelectorAll('div');
         if (divs[0] && metrics.graham_number_percent !== undefined) {
@@ -676,7 +679,16 @@ function loadSchedulerSettings() {
                 document.getElementById('scheduler-status').textContent = `Error: ${data.error}`;
                 return;
             }
-            
+
+            // Update last download timestamp
+            const lastDownloadEl = document.getElementById('last-download-time');
+            if (data.last_run) {
+                const lastRun = new Date(data.last_run).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                lastDownloadEl.textContent = `${lastRun} ET`;
+            } else {
+                lastDownloadEl.textContent = 'Never';
+            }
+
             document.getElementById('scheduler-enabled').checked = data.enabled;
             document.getElementById('scheduler-day').value = data.day_of_week;
             document.getElementById('scheduler-hour').value = data.hour;
@@ -684,12 +696,12 @@ function loadSchedulerSettings() {
             
             let statusText = `Scheduler ${data.enabled ? '✓ enabled' : '✗ disabled'}`;
             if (data.last_run) {
-                const lastRun = new Date(data.last_run).toLocaleString();
-                statusText += `<br>Last run: ${lastRun}`;
+                const lastRun = new Date(data.last_run).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                statusText += `<br>Last run: ${lastRun} ET`;
             }
             if (data.next_run) {
-                const nextRun = new Date(data.next_run).toLocaleString();
-                statusText += `<br>Next run: ${nextRun}`;
+                const nextRun = new Date(data.next_run).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                statusText += `<br>Next run: ${nextRun} ET`;
             }
             
             document.getElementById('scheduler-status').innerHTML = statusText;
@@ -731,7 +743,8 @@ function saveSchedulerSettings() {
 
 // Load scheduler settings on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Don't load scheduler settings on load - user can expand settings if needed
+    // Load last download timestamp on page load
+    loadSchedulerSettings();
 });
 </script>
 

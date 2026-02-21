@@ -23,4 +23,10 @@ def create_app(config_name=None):
     with app.app_context():
         db.create_all()
 
+    # Start background cache scheduler (daemon thread, fires once per configured schedule)
+    # Guard against double-start in Flask's reloader child process
+    if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        from app.routes import start_scheduler_thread
+        start_scheduler_thread(app)
+
     return app
