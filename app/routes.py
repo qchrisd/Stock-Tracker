@@ -26,10 +26,223 @@ def _convert_schedule_tz(day_of_week, hour, minute, from_tz, to_tz):
 
 
 import time
+import threading
 
 # Global rate limiter for Graham metrics scraping (used during bulk download)
 _graham_last_request_time = 0
 _graham_request_lock = None
+
+# ── Background cache scheduler ──────────────────────────────────────────────
+
+_scheduler_thread = None  # Singleton background thread
+
+
+def _fetch_and_store_all_stocks(app):
+    """
+    Core cache job: fetches data for every SEC-listed stock and writes it to the
+    database.  Designed to run outside of a request context (background thread).
+    Returns the number of stocks successfully cached.
+    """
+    def _fetch_one(symbol, attempt=1):
+        max_attempts = 3
+        try:
+            time.sleep(0.2)
+            ticker = yf.Ticker(symbol)
+            try:
+                hist = ticker.history(period='1y', timeout=10)
+                if hist.empty or len(hist) < 200:
+                    return None
+            except Exception as e:
+                if attempt < max_attempts and any(
+                    x in str(e).lower() for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']
+                ):
+                    time.sleep(2)
+                    return _fetch_one(symbol, attempt + 1)
+                return None
+            try:
+                info = ticker.info
+                if not info or 'symbol' not in info:
+                    return None
+            except Exception as e:
+                if attempt < max_attempts and any(
+                    x in str(e).lower() for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']
+                ):
+                    time.sleep(2)
+                    return _fetch_one(symbol, attempt + 1)
+                return None
+
+            current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
+            price_52w_low  = float(hist['Low'].tail(252).min())  if len(hist) >= 252 else float(hist['Low'].min())
+            price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
+
+            if not current_price or not price_52w_low or current_price <= 0 or price_52w_low <= 0:
+                return None
+
+            distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
+            market_cap = info.get('marketCap')
+            market_cap_billions = (market_cap / 1_000_000_000) if market_cap and market_cap > 0 else None
+
+            graham_metrics = {}
+            try:
+                graham_metrics = get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=False) or {}
+            except Exception:
+                pass
+
+            return {
+                'symbol': symbol,
+                'name': info.get('longName', symbol),
+                'sector': info.get('sector', 'N/A'),
+                'market_cap': market_cap,
+                'market_cap_billions': market_cap_billions,
+                'forward_pe': info.get('forwardPE'),
+                'trailing_pe': info.get('trailingPE'),
+                'dividend_yield': info.get('dividendYield', 0),
+                'current_price': current_price,
+                'price_52w_low': price_52w_low,
+                'price_52w_high': price_52w_high,
+                'distance_from_low': distance_from_low,
+                'eps': info.get('trailingEps'),
+                'book_value_per_share': info.get('bookValue'),
+                **{k: graham_metrics.get(k) for k in (
+                    'graham_number', 'rating_score', 'size_in_sales',
+                    'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
+                    'earnings_stability', 'dividend_record', 'earnings_growth',
+                    'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
+                )}
+            }
+        except Exception as e:
+            print(f"[cache-job] Error fetching {symbol}: {str(e)[:100]}")
+            return None
+
+    with app.app_context():
+        try:
+            print("[cache-job] Starting scheduled cache download …")
+            symbols = get_sec_stock_symbols()
+            if not symbols:
+                print("[cache-job] Failed to fetch SEC ticker list")
+                return 0
+
+            StockCache.query.delete()
+            db.session.commit()
+
+            successful = 0
+            batch = []
+            for i, symbol in enumerate(symbols, 1):
+                try:
+                    result = _fetch_one(symbol)
+                    if result:
+                        batch.append(StockCache(
+                            symbol=result['symbol'],
+                            name=result['name'],
+                            sector=result['sector'],
+                            market_cap=result['market_cap'],
+                            market_cap_billions=result['market_cap_billions'],
+                            forward_pe=result['forward_pe'],
+                            trailing_pe=result['trailing_pe'],
+                            dividend_yield=result['dividend_yield'],
+                            current_price=result['current_price'],
+                            price_52w_low=result['price_52w_low'],
+                            price_52w_high=result['price_52w_high'],
+                            distance_from_low=result['distance_from_low'],
+                            eps=result['eps'],
+                            book_value_per_share=result['book_value_per_share'],
+                            graham_number=result.get('graham_number'),
+                            rating_score=result.get('rating_score'),
+                            size_in_sales=result.get('size_in_sales'),
+                            current_assets_to_2x_liabilities=result.get('current_assets_to_2x_liabilities'),
+                            net_current_assets_to_ltdebt=result.get('net_current_assets_to_ltdebt'),
+                            earnings_stability=result.get('earnings_stability'),
+                            dividend_record=result.get('dividend_record'),
+                            earnings_growth=result.get('earnings_growth'),
+                            graham_number_percent=result.get('graham_number_percent'),
+                            ncav_or_net_net=result.get('ncav_or_net_net'),
+                            equity_to_debt=result.get('equity_to_debt'),
+                            size_in_assets=result.get('size_in_assets'),
+                        ))
+                        successful += 1
+                    if i % 25 == 0:
+                        for entry in batch:
+                            db.session.add(entry)
+                        db.session.commit()
+                        batch = []
+                        print(f"[cache-job] {i}/{len(symbols)} processed, {successful} cached")
+                except Exception as e:
+                    print(f"[cache-job] Exception for {symbol}: {str(e)[:100]}")
+
+            if batch:
+                for entry in batch:
+                    db.session.add(entry)
+                db.session.commit()
+
+            print(f"[cache-job] Completed: {successful} stocks cached out of {len(symbols)}")
+            return successful
+        except Exception as e:
+            print(f"[cache-job] Fatal error: {e}")
+            return 0
+
+
+def _compute_next_utc_run(day_of_week_utc, hour_utc, minute_utc):
+    """Return the next datetime (UTC, timezone-aware) matching the given UTC weekday/hour/minute."""
+    now = datetime.now(_UTC_TZ)
+    days_ahead = (day_of_week_utc - now.weekday()) % 7
+    candidate = now.replace(hour=hour_utc, minute=minute_utc, second=0, microsecond=0) + timedelta(days=days_ahead)
+    if candidate <= now:
+        candidate += timedelta(weeks=1)
+    return candidate
+
+
+def _scheduler_loop(app):
+    """Background daemon thread: wakes up every minute, fires the cache job when due."""
+    print("[cache-scheduler] Background scheduler thread started")
+    while True:
+        try:
+            with app.app_context():
+                scheduler = CacheScheduler.query.first()
+                if scheduler and scheduler.enabled:
+                    next_run = _compute_next_utc_run(
+                        scheduler.day_of_week, scheduler.hour, scheduler.minute
+                    )
+                    # Persist next_run if it changed
+                    if scheduler.next_run is None or abs(
+                        (next_run.replace(tzinfo=None) - scheduler.next_run).total_seconds()
+                    ) > 60:
+                        scheduler.next_run = next_run.replace(tzinfo=None)
+                        db.session.commit()
+
+                    now_utc = datetime.now(_UTC_TZ).replace(tzinfo=None)
+                    # Fire within a 60-second window of the scheduled time
+                    if scheduler.next_run and abs((scheduler.next_run - now_utc).total_seconds()) < 60:
+                        print(f"[cache-scheduler] Firing scheduled cache job at {now_utc} UTC")
+                        successful = _fetch_and_store_all_stocks(app)
+                        with app.app_context():
+                            sch = CacheScheduler.query.first()
+                            if sch:
+                                sch.last_run = datetime.utcnow()
+                                sch.next_run = _compute_next_utc_run(
+                                    sch.day_of_week, sch.hour, sch.minute
+                                ).replace(tzinfo=None)
+                                db.session.commit()
+                        print(f"[cache-scheduler] Job done. {successful} stocks cached. "
+                              f"Next run: {sch.next_run} UTC")
+        except Exception as e:
+            print(f"[cache-scheduler] Error in scheduler loop: {e}")
+
+        time.sleep(60)  # check once per minute
+
+
+def start_scheduler_thread(app):
+    """Start the background scheduler daemon thread (idempotent — only starts once)."""
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return
+    _scheduler_thread = threading.Thread(
+        target=_scheduler_loop,
+        args=(app,),
+        name='cache-scheduler',
+        daemon=True,
+    )
+    _scheduler_thread.start()
+    print("[cache-scheduler] Scheduler daemon thread launched")
 
 def get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=True):
     """
