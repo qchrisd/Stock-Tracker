@@ -178,8 +178,8 @@ def get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=True):
 
 @main_bp.route('/')
 def index():
-    """Display portfolio (owned stocks)"""
-    return redirect(url_for('main.portfolio'))
+    """Redirect to dashboard"""
+    return redirect(url_for('main.dashboard'))
 
 
 @main_bp.route('/portfolio')
