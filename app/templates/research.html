@@ -35,11 +35,14 @@
 
 <!-- Automated Cache Scheduler Settings -->
 <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
         <h4 style="margin: 0;">⏰ Automated Cache Scheduler</h4>
         <button type="button" class="btn btn-sm btn-secondary" onclick="toggleSchedulerSettings()">
             <span id="scheduler-toggle-text">Show Settings</span>
         </button>
+    </div>
+    <div style="margin-bottom: 15px;">
+        <span id="last-download-label" style="font-size: 12px; color: #6c757d;">Last download: <span id="last-download-time">Loading...</span></span>
     </div>
     
     <div id="scheduler-settings" style="display: none;">
@@ -676,7 +679,16 @@ function loadSchedulerSettings() {
                 document.getElementById('scheduler-status').textContent = `Error: ${data.error}`;
                 return;
             }
-            
+
+            // Update last download timestamp
+            const lastDownloadEl = document.getElementById('last-download-time');
+            if (data.last_run) {
+                const lastRun = new Date(data.last_run).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                lastDownloadEl.textContent = `${lastRun} ET`;
+            } else {
+                lastDownloadEl.textContent = 'Never';
+            }
+
             document.getElementById('scheduler-enabled').checked = data.enabled;
             document.getElementById('scheduler-day').value = data.day_of_week;
             document.getElementById('scheduler-hour').value = data.hour;
@@ -731,7 +743,8 @@ function saveSchedulerSettings() {
 
 // Load scheduler settings on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Don't load scheduler settings on load - user can expand settings if needed
+    // Load last download timestamp on page load
+    loadSchedulerSettings();
 });
 </script>
 
