@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response
-from datetime import datetime
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 import yfinance as yf
 import requests
 import json
@@ -8,6 +9,20 @@ from bs4 import BeautifulSoup
 import re
 
 main_bp = Blueprint('main', __name__)
+
+_ET_TZ = ZoneInfo('America/New_York')
+_UTC_TZ = ZoneInfo('UTC')
+
+def _convert_schedule_tz(day_of_week, hour, minute, from_tz, to_tz):
+    """Convert a (day_of_week 0=Mon, hour, minute) schedule from one timezone to another.
+    Uses the next upcoming occurrence of that weekday as the DST reference date.
+    """
+    today = date.today()
+    days_ahead = (day_of_week - today.weekday()) % 7
+    ref_date = today + timedelta(days=days_ahead if days_ahead > 0 else 7)
+    dt_from = datetime(ref_date.year, ref_date.month, ref_date.day, hour, minute, tzinfo=from_tz)
+    dt_to = dt_from.astimezone(to_tz)
+    return dt_to.weekday(), dt_to.hour, dt_to.minute
 
 
 import time
@@ -1451,17 +1466,22 @@ def get_graham_metrics_api(symbol):
 
 @main_bp.route('/api/cache-scheduler/config', methods=['GET'])
 def get_cache_scheduler_config():
-    """Get current cache scheduler configuration"""
+    """Get current cache scheduler configuration (times returned in Eastern Time)"""
     try:
         scheduler = CacheScheduler.get_or_create()
         day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        
+
+        # Convert stored UTC schedule to Eastern Time for display
+        et_day, et_hour, et_min = _convert_schedule_tz(
+            scheduler.day_of_week, scheduler.hour, scheduler.minute, _UTC_TZ, _ET_TZ
+        )
+
         return jsonify({
             'enabled': scheduler.enabled,
-            'day_of_week': scheduler.day_of_week,
-            'day_name': day_names[scheduler.day_of_week],
-            'hour': scheduler.hour,
-            'minute': scheduler.minute,
+            'day_of_week': et_day,
+            'day_name': day_names[et_day],
+            'hour': et_hour,
+            'minute': et_min,
             'last_run': scheduler.last_run.isoformat() if scheduler.last_run else None,
             'next_run': scheduler.next_run.isoformat() if scheduler.next_run else None
         })
@@ -1471,46 +1491,51 @@ def get_cache_scheduler_config():
 
 @main_bp.route('/api/cache-scheduler/config', methods=['POST'])
 def update_cache_scheduler_config():
-    """Update cache scheduler configuration"""
+    """Update cache scheduler configuration (accepts times in Eastern Time, stores as UTC)"""
     try:
         data = request.get_json()
         scheduler = CacheScheduler.get_or_create()
-        
-        # Update fields
+
         if 'enabled' in data:
             scheduler.enabled = bool(data['enabled'])
+
+        # Start from the current stored UTC values, converted to ET as defaults
+        et_day, et_hour, et_min = _convert_schedule_tz(
+            scheduler.day_of_week, scheduler.hour, scheduler.minute, _UTC_TZ, _ET_TZ
+        )
+
         if 'day_of_week' in data:
-            day = int(data['day_of_week'])
-            if 0 <= day <= 6:
-                scheduler.day_of_week = day
-            else:
+            et_day = int(data['day_of_week'])
+            if not (0 <= et_day <= 6):
                 return jsonify({'error': 'day_of_week must be 0-6'}), 400
         if 'hour' in data:
-            hour = int(data['hour'])
-            if 0 <= hour <= 23:
-                scheduler.hour = hour
-            else:
+            et_hour = int(data['hour'])
+            if not (0 <= et_hour <= 23):
                 return jsonify({'error': 'hour must be 0-23'}), 400
         if 'minute' in data:
-            minute = int(data['minute'])
-            if 0 <= minute <= 59:
-                scheduler.minute = minute
-            else:
+            et_min = int(data['minute'])
+            if not (0 <= et_min <= 59):
                 return jsonify({'error': 'minute must be 0-59'}), 400
-        
+
+        # Convert ET → UTC before storing
+        utc_day, utc_hour, utc_min = _convert_schedule_tz(et_day, et_hour, et_min, _ET_TZ, _UTC_TZ)
+        scheduler.day_of_week = utc_day
+        scheduler.hour = utc_hour
+        scheduler.minute = utc_min
+
         scheduler.updated_at = datetime.utcnow()
         db.session.commit()
-        
+
         day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        
+
         return jsonify({
             'success': True,
             'message': f'Scheduler {"enabled" if scheduler.enabled else "disabled"}',
             'enabled': scheduler.enabled,
-            'day_of_week': scheduler.day_of_week,
-            'day_name': day_names[scheduler.day_of_week],
-            'hour': scheduler.hour,
-            'minute': scheduler.minute
+            'day_of_week': et_day,
+            'day_name': day_names[et_day],
+            'hour': et_hour,
+            'minute': et_min
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
