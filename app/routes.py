@@ -1906,13 +1906,9 @@ def research():
                 if forward_pe == 0 or forward_pe > forward_pe_max:
                     continue
                 
-                # Filter by rating score if it exists
+                # Filter by rating score if it exists, but don't exclude stocks that lack this value
                 if stock.rating_score is not None:
                     if not (rating_score_min <= stock.rating_score <= rating_score_max):
-                        continue
-                else:
-                    # Skip stocks with no rating score if a filter is applied
-                    if rating_score_min > 0 or rating_score_max < 100:
                         continue
                 
                 suggestions.append({
