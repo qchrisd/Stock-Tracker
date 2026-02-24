@@ -36,6 +36,37 @@ _graham_request_lock = None
 
 _scheduler_thread = None  # Singleton background thread
 
+# Shared job state – written by both the SSE route and the background job,
+# read by /api/cache-status so any page load can pick up an in-progress run.
+_cache_job_state = {
+    'running': False,
+    'status': 'idle',      # idle | fetching_tickers | fetching_started | progress | complete | error | cancelled
+    'message': '',
+    'processed': 0,
+    'total': 0,
+    'successful': 0,
+    'percent': 0,
+}
+_cache_cancel_requested = False  # Set True by /api/cache-cancel
+
+
+def _reset_job_state():
+    global _cache_job_state, _cache_cancel_requested
+    _cache_cancel_requested = False
+    _cache_job_state.update({
+        'running': True,
+        'status': 'fetching_tickers',
+        'message': 'Fetching SEC securities list…',
+        'processed': 0,
+        'total': 0,
+        'successful': 0,
+        'percent': 0,
+    })
+
+
+def _update_job_state(**kwargs):
+    _cache_job_state.update(kwargs)
+
 
 def _fetch_and_store_all_stocks(app):
     """
@@ -114,13 +145,22 @@ def _fetch_and_store_all_stocks(app):
             print(f"[cache-job] Error fetching {symbol}: {str(e)[:100]}")
             return None
 
+    _reset_job_state()
+
     with app.app_context():
         try:
-            print("[cache-job] Starting scheduled cache download …")
+            print("[cache-job] Starting cache download …")
+            _update_job_state(status='fetching_tickers', message='Fetching SEC securities list…')
+
             symbols = get_sec_stock_symbols()
             if not symbols:
+                _update_job_state(running=False, status='error', message='Failed to fetch SEC ticker list')
                 print("[cache-job] Failed to fetch SEC ticker list")
                 return 0
+
+            total = len(symbols)
+            _update_job_state(status='fetching_started', total=total,
+                              message=f'Fetching data for {total:,} securities…')
 
             StockCache.query.delete()
             db.session.commit()
@@ -128,6 +168,20 @@ def _fetch_and_store_all_stocks(app):
             successful = 0
             batch = []
             for i, symbol in enumerate(symbols, 1):
+                # Check cancel flag
+                if _cache_cancel_requested:
+                    # Flush whatever we have so far
+                    if batch:
+                        for entry in batch:
+                            db.session.add(entry)
+                        db.session.commit()
+                        batch = []
+                    _update_job_state(running=False, status='cancelled',
+                                      message=f'Cancelled after {i-1} stocks. {successful} cached.',
+                                      processed=i-1, percent=int(((i-1)/total)*100))
+                    print(f"[cache-job] Cancelled at {i-1}/{total}")
+                    return successful
+
                 try:
                     result = _fetch_one(symbol)
                     if result:
@@ -165,7 +219,10 @@ def _fetch_and_store_all_stocks(app):
                             db.session.add(entry)
                         db.session.commit()
                         batch = []
-                        print(f"[cache-job] {i}/{len(symbols)} processed, {successful} cached")
+                        _update_job_state(status='progress', processed=i, total=total,
+                                          successful=successful,
+                                          percent=int((i/total)*100))
+                        print(f"[cache-job] {i}/{total} processed, {successful} cached")
                 except Exception as e:
                     print(f"[cache-job] Exception for {symbol}: {str(e)[:100]}")
 
@@ -174,9 +231,13 @@ def _fetch_and_store_all_stocks(app):
                     db.session.add(entry)
                 db.session.commit()
 
-            print(f"[cache-job] Completed: {successful} stocks cached out of {len(symbols)}")
+            _update_job_state(running=False, status='complete', processed=total,
+                              successful=successful, percent=100,
+                              message=f'Successfully cached {successful:,} stocks')
+            print(f"[cache-job] Completed: {successful} stocks cached out of {total}")
             return successful
         except Exception as e:
+            _update_job_state(running=False, status='error', message=str(e))
             print(f"[cache-job] Fatal error: {e}")
             return 0
 
@@ -1432,201 +1493,76 @@ def get_stock_price(symbol):
 @main_bp.route('/api/cache-stocks')
 def cache_stocks():
     """
-    Server-Sent Events endpoint that downloads and caches financial data for all SEC stocks.
-    Sends progress updates to the client.
-    Skips Graham metrics during bulk download for speed (fetched on-demand).
+    Server-Sent Events endpoint – streams progress while the cache job runs.
+    Delegates all actual work to _fetch_and_store_all_stocks so the shared
+    _cache_job_state stays accurate whether the job was triggered manually or
+    by the background scheduler.
     """
     from flask import current_app
     import traceback
-    import time
-    
-    # Get the app while we're still in the request context
+
+    # Reject if already running
+    if _cache_job_state.get('running'):
+        def _already_running():
+            yield f"data: {json.dumps({'status': 'error', 'message': 'A cache job is already in progress.'})}\n\n"
+        return Response(_already_running(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
     app = current_app._get_current_object()
-    
-    def fetch_stock_data(symbol, attempt=1):
-        """Fetch financial data and Graham metrics for a single stock with retry logic"""
-        max_attempts = 3
-        
-        try:
-            # Add delay to respect rate limits (same for both sources)
-            time.sleep(0.2)
-            
-            # Fetch yfinance data
-            ticker = yf.Ticker(symbol)
-            
-            try:
-                hist = ticker.history(period='1y', timeout=10)
-                if hist.empty or len(hist) < 200:
-                    return None
-            except Exception as e:
-                error_str = str(e).lower()
-                # Retry on rate limiting or temp errors
-                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
-                    time.sleep(2)  # Wait before retry
-                    return fetch_stock_data(symbol, attempt + 1)
-                return None
-            
-            try:
-                info = ticker.info
-                if not info or 'symbol' not in info:
-                    return None
-            except Exception as e:
-                error_str = str(e).lower()
-                if attempt < max_attempts and any(x in error_str for x in ['unauthorized', 'crumb', 'timeout', '429', '503', 'temporarily']):
-                    time.sleep(2)
-                    return fetch_stock_data(symbol, attempt + 1)
-                return None
-            
-            current_price = float(hist['Close'].iloc[-1]) if not hist.empty else None
-            price_52w_low = float(hist['Low'].tail(252).min()) if len(hist) >= 252 else float(hist['Low'].min())
-            price_52w_high = float(hist['High'].tail(252).max()) if len(hist) >= 252 else float(hist['High'].max())
-            
-            if not current_price or not price_52w_low or current_price <= 0 or price_52w_low <= 0:
-                return None
-            
-            distance_from_low = ((current_price - price_52w_low) / price_52w_low) * 100
-            market_cap = info.get('marketCap')
-            market_cap_billions = (market_cap / 1_000_000_000) if market_cap and market_cap > 0 else None
-            
-            # Fetch Graham metrics (with rate limiting disabled - handled sequentially here)
-            graham_metrics = {}
-            try:
-                graham_metrics = get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=False) or {}
-            except Exception as e:
-                print(f"Warning: Failed to fetch Graham metrics for {symbol}: {str(e)[:80]}")
-                # Don't fail the entire stock if Graham metrics fail - just skip them
-                graham_metrics = {}
-            
-            return {
-                'symbol': symbol,
-                'name': info.get('longName', symbol),
-                'sector': info.get('sector', 'N/A'),
-                'market_cap': market_cap,
-                'market_cap_billions': market_cap_billions,
-                'forward_pe': info.get('forwardPE'),
-                'trailing_pe': info.get('trailingPE'),
-                'dividend_yield': info.get('dividendYield', 0),
-                'current_price': current_price,
-                'price_52w_low': price_52w_low,
-                'price_52w_high': price_52w_high,
-                'distance_from_low': distance_from_low,
-                'eps': info.get('trailingEps'),
-                'book_value_per_share': info.get('bookValue'),
-                # Graham metrics
-                'graham_number': graham_metrics.get('graham_number'),
-                'rating_score': graham_metrics.get('rating_score'),
-                'size_in_sales': graham_metrics.get('size_in_sales'),
-                'current_assets_to_2x_liabilities': graham_metrics.get('current_assets_to_2x_liabilities'),
-                'net_current_assets_to_ltdebt': graham_metrics.get('net_current_assets_to_ltdebt'),
-                'earnings_stability': graham_metrics.get('earnings_stability'),
-                'dividend_record': graham_metrics.get('dividend_record'),
-                'earnings_growth': graham_metrics.get('earnings_growth'),
-                'graham_number_percent': graham_metrics.get('graham_number_percent'),
-                'ncav_or_net_net': graham_metrics.get('ncav_or_net_net'),
-                'equity_to_debt': graham_metrics.get('equity_to_debt'),
-                'size_in_assets': graham_metrics.get('size_in_assets')
-            }
-        except Exception as e:
-            print(f"Error fetching {symbol}: {str(e)[:100]}")
-            return None
-    
+
     def generate_progress():
-        # Create an app context for the generator execution
-        with app.app_context():
-            try:
-                # Get all SEC tickers
-                yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': 'Fetching SEC securities list...'})}\n\n"
-                
-                symbols = get_sec_stock_symbols()
-                total = len(symbols)
-                
-                if total == 0:
-                    yield f"data: {json.dumps({'status': 'error', 'message': 'Failed to fetch SEC ticker list'})}\n\n"
-                    return
-                
-                yield f"data: {json.dumps({'status': 'fetching_started', 'total': total, 'message': f'Fetching financial data for {total:,} SEC-listed securities (this may take a few minutes)...'})}\n\n"
-                
-                # Clear old cache
-                StockCache.query.delete()
-                db.session.commit()
-                
-                successful = 0
-                batch = []
-                processed = 0
-                
-                # Sequential processing: more reliable with yfinance than concurrent
-                # Process stocks one at a time with proper delays
-                for symbol in symbols:
-                    processed += 1
-                    
-                    try:
-                        result = fetch_stock_data(symbol)
-                        
-                        if result:
-                            cache_entry = StockCache(
-                                symbol=result['symbol'],
-                                name=result['name'],
-                                sector=result['sector'],
-                                market_cap=result['market_cap'],
-                                market_cap_billions=result['market_cap_billions'],
-                                forward_pe=result['forward_pe'],
-                                trailing_pe=result['trailing_pe'],
-                                dividend_yield=result['dividend_yield'],
-                                current_price=result['current_price'],
-                                price_52w_low=result['price_52w_low'],
-                                price_52w_high=result['price_52w_high'],
-                                distance_from_low=result['distance_from_low'],
-                                eps=result['eps'],
-                                book_value_per_share=result['book_value_per_share'],
-                                # Graham metrics (now fetched during cache download)
-                                graham_number=result.get('graham_number'),
-                                rating_score=result.get('rating_score'),
-                                size_in_sales=result.get('size_in_sales'),
-                                current_assets_to_2x_liabilities=result.get('current_assets_to_2x_liabilities'),
-                                net_current_assets_to_ltdebt=result.get('net_current_assets_to_ltdebt'),
-                                earnings_stability=result.get('earnings_stability'),
-                                dividend_record=result.get('dividend_record'),
-                                earnings_growth=result.get('earnings_growth'),
-                                graham_number_percent=result.get('graham_number_percent'),
-                                ncav_or_net_net=result.get('ncav_or_net_net'),
-                                equity_to_debt=result.get('equity_to_debt'),
-                                size_in_assets=result.get('size_in_assets')
-                            )
-                            
-                            batch.append(cache_entry)
-                            successful += 1
-                        
-                        # Commit every 25 stocks and send progress update
-                        if processed % 25 == 0:
-                            for entry in batch:
-                                db.session.add(entry)
-                            db.session.commit()
-                            batch = []
-                            yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'successful': successful, 'percent': int((processed/total)*100)})}\n\n"
-                    
-                    except Exception as e:
-                        print(f"Exception processing {symbol}: {str(e)[:100]}")
-                        continue
-                
-                # Final commit for remaining batch
-                if batch:
-                    for entry in batch:
-                        db.session.add(entry)
-                    db.session.commit()
-                
-                yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'successful': successful, 'message': f'Successfully cached {successful:,} stocks'})}\n\n"
-                
-            except Exception as e:
-                error_msg = f"{str(e)}"
-                tb = traceback.format_exc()
-                print(f"Error in cache_stocks: {error_msg}")
-                print(tb)
-                yield f"data: {json.dumps({'status': 'error', 'message': f'Error during caching: {error_msg}', 'traceback': tb})}\n\n"
-    
-    return Response(generate_progress(), mimetype='text/event-stream', headers={
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no'
-    })
+        # Kick off in the same thread so SSE can stream live updates
+        # by reading _cache_job_state every 2 seconds.
+        import threading as _threading
+        job_thread = _threading.Thread(target=_fetch_and_store_all_stocks, args=(app,), daemon=True)
+        job_thread.start()
+
+        last_percent = -1
+        while job_thread.is_alive() or _cache_job_state.get('running'):
+            state = dict(_cache_job_state)
+            status = state.get('status', 'idle')
+
+            if status == 'fetching_tickers':
+                yield f"data: {json.dumps({'status': 'fetching_tickers', 'message': state['message']})}\n\n"
+
+            elif status == 'fetching_started':
+                yield f"data: {json.dumps({'status': 'fetching_started', 'total': state['total'], 'message': state['message']})}\n\n"
+
+            elif status == 'progress':
+                pct = state.get('percent', 0)
+                if pct != last_percent:
+                    last_percent = pct
+                    yield f"data: {json.dumps({'status': 'progress', 'processed': state['processed'], 'total': state['total'], 'successful': state['successful'], 'percent': pct})}\n\n"
+
+            elif status in ('complete', 'error', 'cancelled'):
+                yield f"data: {json.dumps(state)}\n\n"
+                break
+
+            time.sleep(2)
+
+        # Final flush in case we exited the loop before emitting terminal state
+        state = dict(_cache_job_state)
+        if state.get('status') in ('complete', 'error', 'cancelled'):
+            yield f"data: {json.dumps(state)}\n\n"
+
+    return Response(generate_progress(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@main_bp.route('/api/cache-status')
+def cache_status_api():
+    """Returns the current state of the background/manual cache job as JSON."""
+    return jsonify(dict(_cache_job_state))
+
+
+@main_bp.route('/api/cache-cancel', methods=['POST'])
+def cache_cancel_api():
+    """Request cancellation of any running cache job."""
+    global _cache_cancel_requested
+    if _cache_job_state.get('running'):
+        _cache_cancel_requested = True
+        return jsonify({'success': True, 'message': 'Cancel requested'})
+    return jsonify({'success': False, 'message': 'No cache job is currently running'})
 
 
 @main_bp.route('/api/graham-metrics/<symbol>')
@@ -1970,13 +1906,9 @@ def research():
                 if forward_pe == 0 or forward_pe > forward_pe_max:
                     continue
                 
-                # Filter by rating score if it exists
+                # Filter by rating score if it exists, but don't exclude stocks that lack this value
                 if stock.rating_score is not None:
                     if not (rating_score_min <= stock.rating_score <= rating_score_max):
-                        continue
-                else:
-                    # Skip stocks with no rating score if a filter is applied
-                    if rating_score_min > 0 or rating_score_max < 100:
                         continue
                 
                 suggestions.append({

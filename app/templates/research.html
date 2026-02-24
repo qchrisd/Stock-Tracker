@@ -21,9 +21,14 @@
 
 <!-- Progress Bar (hidden by default) -->
 <div id="progress-container" style="display: none; margin-bottom: 20px;">
-    <div style="margin-bottom: 10px;">
-        <strong>Downloading and caching stock data...</strong>
-        <span id="progress-status">Initializing...</span>
+    <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <strong>Downloading and caching stock data...</strong>
+            <span id="progress-status">Initializing...</span>
+        </div>
+        <button type="button" id="cancel-btn" class="btn btn-danger btn-sm" onclick="cancelCacheDownload()" style="display: none;">
+            ❌ Cancel
+        </button>
     </div>
     <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
         <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
@@ -160,14 +165,14 @@
             <div class="filter-group">
                 <label for="rating_score_min"><strong>Graham Rating Score Range</strong></label>
                 <div class="range-inputs">
-                    <input type="number" id="rating_score_min" name="rating_score_min" min="0" max="100" step="0.1" 
+                    <input type="number" id="rating_score_min" name="rating_score_min" min="0" max="10" step="0.1" 
                            value="{{ "%.1f"|format(rating_score_min) }}" placeholder="Min">
                     <span>to</span>
-                    <input type="number" id="rating_score_max" name="rating_score_max" min="0" max="100" step="0.1" 
+                    <input type="number" id="rating_score_max" name="rating_score_max" min="0" max="10" step="0.1" 
                            value="{{ "%.1f"|format(rating_score_max) }}" placeholder="Max">
                 </div>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                    Higher scores indicate better value. Typically 0-100 scale. Only affects stocks with cached Graham data.
+                    Higher scores indicate better value. Typically 0-10 scale. Only affects stocks with cached Graham data.
                 </div>
             </div>
         </div>
@@ -316,7 +321,7 @@ function resetFilters() {
     document.getElementById('distance_max_slider').value = 15;
     document.getElementById('forward_pe_max').value = 40;
     document.getElementById('rating_score_min').value = 0;
-    document.getElementById('rating_score_max').value = 100;
+    document.getElementById('rating_score_max').value = 10;
     updateDistanceDisplay();
 }
 
@@ -560,88 +565,158 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Cache download and progress tracking
-function startCacheDownload() {
-    const downloadBtn = document.getElementById('download-btn');
+// ── Cache download / status polling ─────────────────────────────────────────
+let _cacheStatusPoller = null;
+
+function _startPolling() {
+    if (_cacheStatusPoller) return; // already polling
+    _cacheStatusPoller = setInterval(_pollCacheStatus, 2000);
+}
+
+function _stopPolling() {
+    if (_cacheStatusPoller) {
+        clearInterval(_cacheStatusPoller);
+        _cacheStatusPoller = null;
+    }
+}
+
+function _pollCacheStatus() {
+    fetch('/api/cache-status')
+        .then(r => r.json())
+        .then(data => {
+            _applyCacheState(data);
+            if (!data.running && data.status !== 'idle') {
+                // Job finished — stop polling after one more tick
+                _stopPolling();
+            }
+        })
+        .catch(() => {}); // ignore network errors during poll
+}
+
+function _applyCacheState(data) {
+    const downloadBtn     = document.getElementById('download-btn');
+    const cancelBtn       = document.getElementById('cancel-btn');
     const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressStatus = document.getElementById('progress-status');
+    const progressBar     = document.getElementById('progress-bar');
+    const progressStatus  = document.getElementById('progress-status');
     const progressDetails = document.getElementById('progress-details');
-    const cacheStatus = document.getElementById('cache-status');
-    
-    // Disable button and show progress
+    const cacheStatus     = document.getElementById('cache-status');
+
+    const status = data.status || 'idle';
+
+    if (status === 'idle') return; // nothing to show
+
+    // Show progress container whenever a job is running or recently finished
+    progressContainer.style.display = 'block';
+    cancelBtn.style.display = data.running ? 'inline-block' : 'none';
+    downloadBtn.disabled = data.running;
+    downloadBtn.textContent = data.running ? '⏳ Downloading...' : '📥 Download Stock Data';
+
+    if (status === 'fetching_tickers') {
+        progressStatus.textContent = data.message || 'Fetching SEC securities list…';
+
+    } else if (status === 'fetching_started') {
+        progressStatus.textContent = data.message || 'Starting download…';
+        progressDetails.textContent = `Total stocks to process: ${data.total}`;
+
+    } else if (status === 'progress') {
+        const pct = data.percent || 0;
+        progressBar.style.width = pct + '%';
+        progressBar.textContent = pct + '%';
+        progressStatus.textContent = `Processing: ${data.processed}/${data.total}`;
+        progressDetails.textContent = `Successfully cached: ${data.successful} stocks`;
+
+    } else if (status === 'complete') {
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressStatus.textContent = '✓ Download Complete!';
+        progressDetails.innerHTML = `<strong style="color:#27ae60;">${data.successful} stocks successfully cached!</strong>`;
+        cacheStatus.textContent = `${data.successful} stocks cached`;
+        cacheStatus.style.color = '#27ae60';
+        cancelBtn.style.display = 'none';
+        // Auto-hide after 5 s
+        setTimeout(() => { progressContainer.style.display = 'none'; }, 5000);
+
+    } else if (status === 'cancelled') {
+        progressStatus.textContent = '⚠️ Cancelled';
+        progressDetails.textContent = data.message || '';
+        cancelBtn.style.display = 'none';
+        setTimeout(() => { progressContainer.style.display = 'none'; }, 4000);
+
+    } else if (status === 'error') {
+        progressStatus.textContent = '✗ Error occurred';
+        progressDetails.innerHTML = `<strong style="color:#e74c3c;">${data.message || 'Unknown error'}</strong>`;
+        cancelBtn.style.display = 'none';
+    }
+}
+
+function startCacheDownload() {
+    // Fire the SSE endpoint to kick off the job, then switch to polling
+    const downloadBtn = document.getElementById('download-btn');
     downloadBtn.disabled = true;
     downloadBtn.textContent = '⏳ Downloading...';
+
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar       = document.getElementById('progress-bar');
+    const progressStatus    = document.getElementById('progress-status');
+    const progressDetails   = document.getElementById('progress-details');
+    const cancelBtn         = document.getElementById('cancel-btn');
+
     progressContainer.style.display = 'block';
     progressBar.style.width = '0%';
     progressBar.textContent = '0%';
-    progressStatus.textContent = 'Initializing...';
+    progressStatus.textContent = 'Initializing…';
     progressDetails.textContent = '';
-    
-    // Create EventSource to receive progress updates
+    cancelBtn.style.display = 'inline-block';
+
+    // Open SSE to trigger job start (server detects it and spawns the job thread)
     const eventSource = new EventSource('/api/cache-stocks');
-    
     eventSource.onmessage = function(event) {
         try {
             const data = JSON.parse(event.data);
-            
-            if (data.status === 'fetching_tickers') {
-                progressStatus.textContent = data.message;
-            } 
-            else if (data.status === 'fetching_started') {
-                progressStatus.textContent = data.message;
-                progressDetails.textContent = `Total stocks to process: ${data.total}`;
-            }
-            else if (data.status === 'progress') {
-                const percent = data.percent || 0;
-                progressBar.style.width = percent + '%';
-                progressBar.textContent = percent + '%';
-                progressStatus.textContent = `Processing: ${data.processed}/${data.total}`;
-                progressDetails.textContent = `Successfully cached: ${data.successful} stocks`;
-            }
-            else if (data.status === 'complete') {
-                const percent = 100;
-                progressBar.style.width = percent + '%';
-                progressBar.textContent = percent + '%';
-                progressStatus.textContent = '✓ Download Complete!';
-                progressDetails.innerHTML = `<strong style="color: #27ae60;">${data.successful} stocks successfully cached!</strong>`;
-                cacheStatus.textContent = `${data.successful} stocks cached`;
-                cacheStatus.style.color = '#27ae60';
-                
-                // Close event source
+            _applyCacheState(data);
+            if (!data.running && ['complete','error','cancelled'].includes(data.status)) {
                 eventSource.close();
-                
-                // Re-enable button after a short delay
-                setTimeout(() => {
-                    downloadBtn.disabled = false;
-                    downloadBtn.textContent = '📥 Download Stock Data';
-                    // Optionally hide progress bar after a few seconds
-                    setTimeout(() => {
-                        progressContainer.style.display = 'none';
-                    }, 3000);
-                }, 1000);
             }
-            else if (data.status === 'error') {
-                progressStatus.textContent = '✗ Error occurred';
-                progressDetails.innerHTML = `<strong style="color: #e74c3c;">${data.message}</strong>`;
-                eventSource.close();
-                downloadBtn.disabled = false;
-                downloadBtn.textContent = '📥 Download Stock Data';
-            }
-        } catch (e) {
-            console.error('Error parsing progress data:', e);
-        }
+        } catch(e) {}
     };
-    
-    eventSource.onerror = function(event) {
-        console.error('EventSource error:', event);
-        progressStatus.textContent = '✗ Connection error';
-        progressDetails.textContent = 'The connection was lost. This often happens when the cache download is taking too long. Check the browser console for details.';
+    eventSource.onerror = function() {
+        // SSE connection dropped — fall back to polling to track background job
         eventSource.close();
-        downloadBtn.disabled = false;
-        downloadBtn.textContent = '📥 Download Stock Data';
+        _startPolling();
     };
+
+    // Also start polling as a fallback (deduplicated by _startPolling guard)
+    _startPolling();
 }
+
+function cancelCacheDownload() {
+    fetch('/api/cache-cancel', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('cancel-btn').disabled = true;
+                document.getElementById('cancel-btn').textContent = '⏳ Cancelling…';
+            }
+        })
+        .catch(() => {});
+}
+
+// On page load: check whether a job is already in progress AND load scheduler timestamp
+document.addEventListener('DOMContentLoaded', function() {
+    // Load scheduler last-download timestamp
+    loadSchedulerSettings();
+    // Detect any in-progress background cache job
+    fetch('/api/cache-status')
+        .then(r => r.json())
+        .then(data => {
+            if (data.running) {
+                _applyCacheState(data);
+                _startPolling();
+            }
+        })
+        .catch(() => {});
+});
 
 function resetFilters() {
     document.getElementById('market_cap_min').value = '0';
@@ -653,7 +728,7 @@ function resetFilters() {
     document.getElementById('distance_display').textContent = '0.0% - 100.0%';
     document.getElementById('forward_pe_max').value = '100';
     document.getElementById('rating_score_min').value = '0';
-    document.getElementById('rating_score_max').value = '100';
+    document.getElementById('rating_score_max').value = '10';
 }
 
 // Scheduler functions
@@ -753,11 +828,7 @@ function saveSchedulerSettings() {
         });
 }
 
-// Load scheduler settings on page load
-document.addEventListener('DOMContentLoaded', function() {
-    // Load last download timestamp on page load
-    loadSchedulerSettings();
-});
+
 </script>
 
 {% endblock %}
