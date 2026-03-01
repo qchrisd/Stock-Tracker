@@ -16,7 +16,7 @@
             <legend>Stock Details</legend>
             <div class="form-group">
                 <label for="symbol">Stock Symbol *</label>
-                <input type="text" id="symbol" name="symbol" required placeholder="e.g. AAPL" class="form-input" style="text-transform:uppercase;">
+                <input type="text" id="symbol" name="symbol" required placeholder="e.g. AAPL" class="form-input" style="text-transform:uppercase;" value="{{ prefill_symbol | upper }}">
                 <small>Enter the ticker symbol for the stock</small>
             </div>
             <div class="form-group">

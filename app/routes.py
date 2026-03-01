@@ -8,8 +8,7 @@ from app.models import db, PortfolioMeta, WatchlistMeta
 from app.portfolio_models import Stock, Transaction, Account
 from app.cache_models import StockCache, CacheScheduler
 from app.database import db_manager
-from bs4 import BeautifulSoup
-import re
+
 
 main_bp = Blueprint('main', __name__)
 
@@ -37,9 +36,6 @@ def _convert_schedule_tz(day_of_week, hour, minute, from_tz, to_tz):
 
 import time
 import threading
-
-_graham_last_request_time = 0
-_graham_request_lock = None
 
 # ── Background cache scheduler ────────────────────────────────────────────────
 
@@ -118,7 +114,7 @@ def _fetch_and_store_all_stocks(app):
 
             graham_metrics = {}
             try:
-                graham_metrics = get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=False) or {}
+                graham_metrics = get_graham_metrics_from_yfinance(symbol, ticker=ticker) or {}
             except Exception:
                 pass
 
@@ -303,72 +299,224 @@ def start_scheduler_thread(app):
     print("[cache-scheduler] Scheduler daemon thread launched")
 
 
-# ── Graham Value scraping ─────────────────────────────────────────────────────
+# ── Graham Value calculation (local, via yfinance) ───────────────────────────
 
-def get_graham_metrics_from_grahamvalue(symbol, apply_rate_limit=True):
-    global _graham_last_request_time, _graham_request_lock
-    if _graham_request_lock is None:
-        _graham_request_lock = threading.Lock()
+def get_graham_metrics_from_yfinance(symbol, ticker=None):
+    """Calculate Graham-style investment criteria locally from yfinance data.
 
-    empty = {k: None for k in (
-        'graham_number', 'defensive_price', 'enterprising_price', 'ncav_price',
-        'rating_score', 'size_in_sales', 'current_assets_to_2x_liabilities',
-        'net_current_assets_to_ltdebt', 'earnings_stability', 'dividend_record',
-        'earnings_growth', 'graham_number_percent', 'ncav_or_net_net',
-        'equity_to_debt', 'size_in_assets'
-    )}
+    All percentage fields are 0–100 (higher = better).  The overall
+    rating_score is their sum divided by 100, giving a 0–10 scale.
+
+    Criteria
+    --------
+    1.  Size in Sales          – 100 % == $500 M revenue
+    2.  Current Assets ÷ (2 × Current Liabilities) – 100 % == ratio ≥ 1
+    3.  Net Current Assets ÷ Long-Term Debt         – 100 % == ratio ≥ 1
+    4.  Earnings Stability     – 100 % == 10 years of positive net income
+    5.  Dividend Record        – 100 % == 20 years paying dividends
+    6.  Earnings Growth        – 100 % == ≥ 33 % growth over available period
+    7.  Graham Number (%)      – 100 % == current price ≤ Graham Number
+    8.  NCAV / Net-Net (%)     – 100 % == current price ≤ NCAV per share
+    9.  [2 × Equity] ÷ Debt   – 100 % == ratio ≥ 1
+    10. Size in Assets         – 100 % == $250 M in total assets
+    """
+    _keys = (
+        'graham_number', 'rating_score', 'size_in_sales',
+        'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
+        'earnings_stability', 'dividend_record', 'earnings_growth',
+        'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
+    )
+    empty = {k: None for k in _keys}
 
     try:
-        if apply_rate_limit:
-            with _graham_request_lock:
-                elapsed = time.time() - _graham_last_request_time
-                if elapsed < 5:
-                    time.sleep(5 - elapsed)
-                _graham_last_request_time = time.time()
-
-        url = f"https://www.grahamvalue.com/stock/{symbol.lower()}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        full_text = soup.get_text()
+        if ticker is None:
+            ticker = yf.Ticker(symbol)
+        info = ticker.info
+        if not info:
+            return empty
 
         data = dict(empty)
+        scores = []
 
-        m = re.search(r'Rating Score\s*=\s*([\d.]+)', full_text)
-        if m: data['rating_score'] = float(m.group(1))
-        m = re.search(r'Defensive Price[^:]*?\(Graham[^:]*?\):\s+([\d.]+)', full_text)
-        if m:
-            data['defensive_price'] = float(m.group(1))
-            data['graham_number'] = float(m.group(1))
-        m = re.search(r'Enterprising Price[^:]*?\(Serenity[^:]*?\):\s+([\d.]+)', full_text)
-        if m: data['enterprising_price'] = float(m.group(1))
-        m = re.search(r'NCAV Price[^:]*?\(Net-Net\):\s+([\d.]+)', full_text)
-        if m: data['ncav_price'] = float(m.group(1))
-        m = re.search(r'Size in Sales.*?:\s+([\d,]+\.[\d]+)%', full_text)
-        if m: data['size_in_sales'] = float(m.group(1).replace(',', ''))
-        m = re.search(r'Current Assets\s*\xf7\s*\[2\s*x\s*Current Liabilities\]\s*:\s+([\d.]+)%', full_text)
-        if m: data['current_assets_to_2x_liabilities'] = float(m.group(1))
-        m = re.search(r'Net Current Assets\s*\xf7\s*Long-Term Debt\s*:\s+([\d.]+)%', full_text)
-        if m: data['net_current_assets_to_ltdebt'] = float(m.group(1))
-        m = re.search(r'Earnings Stability\s*[^:]*?:\s+([\d.]+)%', full_text)
-        if m: data['earnings_stability'] = float(m.group(1))
-        m = re.search(r'Dividend Record\s*[^:]*?:\s+([\d.]+)%', full_text)
-        if m: data['dividend_record'] = float(m.group(1))
-        m = re.search(r'Earnings Growth\s*[^:]*?:\s+([\d.]+)%', full_text)
-        if m: data['earnings_growth'] = float(m.group(1))
-        m = re.search(r'Graham Number\(%\)\s*:\s+([\d.]+)%', full_text)
-        if m: data['graham_number_percent'] = float(m.group(1))
-        m = re.search(r'NCAV or Net-Net\(%\)\s*:\s+([\d.]+)%', full_text)
-        if m: data['ncav_or_net_net'] = float(m.group(1))
-        m = re.search(r'\[2\s*x\s*Equity\]\s*\xf7\s*Debt\s*:\s+([\d.]+)%', full_text)
-        if m: data['equity_to_debt'] = float(m.group(1))
-        m = re.search(r'Size in Assets.*?:\s+([\d,]+\.[\d]+)%', full_text)
-        if m: data['size_in_assets'] = float(m.group(1).replace(',', ''))
+        current_price = info.get('currentPrice') or info.get('regularMarketPrice')
 
+        # ── Helpers ────────────────────────────────────────────────────────────
+        def _val(df, *keys):
+            """Return the most-recent non-null value for the first matching row."""
+            if df is None or df.empty:
+                return None
+            for k in keys:
+                if k in df.index:
+                    s = df.loc[k].dropna()
+                    if not s.empty:
+                        return float(s.iloc[0])
+            return None
+
+        def _series(df, *keys):
+            """Return the full non-null Series for the first matching row."""
+            if df is None or df.empty:
+                return None
+            for k in keys:
+                if k in df.index:
+                    return df.loc[k].dropna()
+            return None
+
+        try:
+            bs = ticker.balance_sheet
+        except Exception:
+            bs = None
+        try:
+            inc = ticker.income_stmt
+        except Exception:
+            inc = None
+
+        # ── Balance sheet items (info dict first, statement fallback) ──────────
+        current_assets = (info.get('totalCurrentAssets') or
+                          _val(bs, 'Current Assets', 'CurrentAssets'))
+        current_liab   = (info.get('totalCurrentLiabilities') or
+                          _val(bs, 'Current Liabilities', 'CurrentLiabilities'))
+        total_assets   = (info.get('totalAssets') or
+                          _val(bs, 'Total Assets', 'TotalAssets'))
+        total_liab     = (info.get('totalLiab') or
+                          _val(bs, 'Total Liabilities Net Minority Interest',
+                                  'Total Liabilities', 'TotalLiabilities'))
+        lt_debt        = (info.get('longTermDebt') or
+                          _val(bs, 'Long Term Debt', 'LongTermDebt',
+                               'Long Term Debt And Capital Lease Obligation'))
+        equity         = (info.get('totalStockholderEquity') or
+                          _val(bs, 'Stockholders Equity', 'Common Stock Equity',
+                               'Total Equity Gross Minority Interest'))
+        if not equity and info.get('bookValue') and info.get('sharesOutstanding'):
+            equity = info['bookValue'] * info['sharesOutstanding']
+        total_debt     = (info.get('totalDebt') or lt_debt or
+                          _val(bs, 'Total Debt', 'TotalDebt'))
+        shares         = (info.get('sharesOutstanding') or
+                          info.get('impliedSharesOutstanding'))
+
+        # ── 1. Size in Sales (100 % == $500 M) ────────────────────────────────
+        revenue = info.get('totalRevenue') or _val(inc, 'Total Revenue', 'TotalRevenue')
+        if revenue and revenue > 0:
+            pct = min(revenue / 500_000_000 * 100, 100)
+            data['size_in_sales'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 2. Current Assets ÷ [2 × Current Liabilities] ────────────────────
+        if current_assets and current_liab and current_liab > 0:
+            pct = min(current_assets / (2 * current_liab) * 100, 100)
+            data['current_assets_to_2x_liabilities'] = pct
+            scores.append(pct)
+        else:
+            cr = info.get('currentRatio')
+            if cr and cr > 0:
+                pct = min(cr / 2 * 100, 100)
+                data['current_assets_to_2x_liabilities'] = pct
+                scores.append(pct)
+            else:
+                scores.append(0)
+
+        # ── 3. Net Current Assets ÷ Long-Term Debt ────────────────────────────
+        if current_assets and current_liab:
+            nca = current_assets - current_liab
+            if lt_debt and lt_debt > 0:
+                pct = min(nca / lt_debt * 100, 100) if nca > 0 else 0
+            else:
+                pct = 100.0 if nca > 0 else 0
+            data['net_current_assets_to_ltdebt'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 4. Earnings Stability (100 % == 10 years of positive net income) ──
+        ni_series = _series(inc, 'Net Income', 'NetIncome',
+                            'Net Income Common Stockholders')
+        if ni_series is not None and len(ni_series) > 0:
+            yrs_pos = sum(1 for v in ni_series if v and v > 0)
+            pct = min(yrs_pos / 10 * 100, 100)
+            data['earnings_stability'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 5. Dividend Record (100 % == 20 years paying dividends) ──────────
+        try:
+            divs = ticker.dividends
+            if divs is not None and not divs.empty:
+                yrs_div = len(divs.index.year.unique())
+                pct = min(yrs_div / 20 * 100, 100)
+                data['dividend_record'] = pct
+                scores.append(pct)
+            else:
+                data['dividend_record'] = 0.0
+                scores.append(0)
+        except Exception:
+            scores.append(0)
+
+        # ── 6. Earnings Growth (100 % == ≥ 33 % growth over period) ──────────
+        g_series = _series(inc, 'Diluted EPS', 'Basic EPS')
+        if g_series is None or len(g_series) < 2:
+            g_series = _series(inc, 'Net Income', 'NetIncome')
+        if g_series is not None and len(g_series) >= 2:
+            oldest = float(g_series.iloc[-1])
+            newest = float(g_series.iloc[0])
+            if oldest > 0:
+                pct = min(max((newest - oldest) / oldest / 0.33 * 100, 0), 100)
+                data['earnings_growth'] = pct
+                scores.append(pct)
+            else:
+                data['earnings_growth'] = 0.0
+                scores.append(0)
+        else:
+            scores.append(0)
+
+        # ── 7. Graham Number (%) ──────────────────────────────────────────────
+        eps  = info.get('trailingEps')
+        bvps = info.get('bookValue')
+        if eps and bvps and eps > 0 and bvps > 0 and current_price and current_price > 0:
+            gn = (22.5 * eps * bvps) ** 0.5
+            data['graham_number'] = round(gn, 2)
+            pct = min(gn / current_price * 100, 100)
+            data['graham_number_percent'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 8. NCAV / Net-Net (%) ─────────────────────────────────────────────
+        if (current_assets and total_liab and shares and shares > 0
+                and current_price and current_price > 0):
+            ncav_ps = (current_assets - total_liab) / shares
+            pct = min(ncav_ps / current_price * 100, 100) if ncav_ps > 0 else 0
+            data['ncav_or_net_net'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 9. [2 × Equity] ÷ Debt ───────────────────────────────────────────
+        if equity and equity > 0:
+            if total_debt and total_debt > 0:
+                pct = min(2 * equity / total_debt * 100, 100)
+            else:
+                pct = 100.0          # no debt is ideal
+            data['equity_to_debt'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── 10. Size in Assets (100 % == $250 M) ─────────────────────────────
+        if total_assets and total_assets > 0:
+            pct = min(total_assets / 250_000_000 * 100, 100)
+            data['size_in_assets'] = pct
+            scores.append(pct)
+        else:
+            scores.append(0)
+
+        # ── Rating Score: sum of percentages ÷ 100 → 0–10 scale ──────────────
+        data['rating_score'] = round(sum(scores) / 100, 2) if scores else 0.0
         return data
+
     except Exception as e:
-        print(f"Error scraping Graham data for {symbol}: {str(e)}")
+        print(f"Error calculating Graham metrics for {symbol}: {str(e)}")
         return empty
 
 
@@ -714,7 +862,8 @@ def add_to_portfolio(portfolio_id):
         return redirect(url_for('main.add_to_portfolio', portfolio_id=portfolio_id))
 
     return render_template('add_stock.html', meta=meta, portfolio_id=portfolio_id,
-                           context_type='portfolio')
+                           context_type='portfolio',
+                           prefill_symbol=request.args.get('symbol', ''))
 
 
 @main_bp.route('/portfolio/<int:portfolio_id>/stock/<symbol>/buy', methods=['GET', 'POST'])
@@ -1035,7 +1184,9 @@ def add_to_watchlist(watchlist_id):
             flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('main.add_to_watchlist', watchlist_id=watchlist_id))
 
-    return render_template('add_stock.html', meta=meta, watchlist_id=watchlist_id, context_type='watchlist')
+    return render_template('add_stock.html', meta=meta, watchlist_id=watchlist_id,
+                           context_type='watchlist',
+                           prefill_symbol=request.args.get('symbol', ''))
 
 
 @main_bp.route('/watchlist/<int:watchlist_id>/stock/<int:stock_id>/delete', methods=['POST'])
@@ -1267,7 +1418,7 @@ def get_graham_metrics_api(symbol):
                 'earnings_stability', 'dividend_record', 'earnings_growth',
                 'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
             )})
-        metrics = get_graham_metrics_from_grahamvalue(symbol) or {}
+        metrics = get_graham_metrics_from_yfinance(symbol) or {}
         if cached:
             for k, v in metrics.items():
                 if hasattr(cached, k):
@@ -1382,7 +1533,7 @@ def research():
                     if eps and bvps and eps > 0 and bvps > 0:
                         import math
                         gn = math.sqrt(22.5 * eps * bvps)
-                    gm = get_graham_metrics_from_grahamvalue(symbol) or {}
+                    gm = get_graham_metrics_from_yfinance(symbol) or {}
                     suggestions.append({
                         'symbol': symbol, 'name': info.get('longName', symbol),
                         'current_price': current_price, 'week_52_low': w52l, 'week_52_high': w52h,
