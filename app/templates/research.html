@@ -172,7 +172,7 @@
                            value="{{ "%.1f"|format(rating_score_max) }}" placeholder="Max">
                 </div>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                    Higher scores indicate better value. Typically 0-10 scale. Only affects stocks with cached Graham data.
+                    Filters on the composite (average) Graham score 0–10. Defensive and Enterprising scores are shown separately in the table.
                 </div>
             </div>
         </div>
@@ -198,7 +198,8 @@
                     <th class="sortable" data-sort="pe_forward">Forward P/E</th>
                     <th class="sortable" data-sort="marketcap">Market Cap</th>
                     <th class="sortable" data-sort="dividend">Div Yield</th>
-                    <th class="sortable" data-sort="rating">Rating Score</th>
+                    <th class="sortable" data-sort="def_score" title="Graham Defensive Investor Score (0-10)">Def Score</th>
+                    <th class="sortable" data-sort="ent_score" title="Graham Enterprising Investor Score (0-10)">Ent Score</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -208,7 +209,7 @@
                         data-price="{{ stock.current_price }}" data-low52="{{ stock.week_52_low }}" 
                         data-high52="{{ stock.week_52_high }}" data-distance="{{ stock.distance_from_low }}"
                         data-pe_forward="{{ stock.forward_pe }}"
-                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}" data-rating="{{ stock.rating_score or 0 }}">
+                        data-marketcap="{{ stock.market_cap_billions }}" data-dividend="{{ stock.dividend_yield or 0 }}" data-def_score="{{ stock.defensive_score or 0 }}" data-ent_score="{{ stock.enterprising_score or 0 }}">
                         <td class="toggle-cell" style="cursor: pointer;">
                             <span class="toggle-arrow">▶</span>
                         </td>
@@ -235,7 +236,8 @@
                                 —
                             {% endif %}
                         </td>
-                        <td style="color: #3498db; font-weight: bold;">{{ "{:.1f}".format(stock.rating_score) if stock.rating_score is not none else 'N/A' }}</td>
+                        <td style="color: #2980b9; font-weight: bold;" title="Defensive Investor Score">{{ "{:.1f}".format(stock.defensive_score) if stock.defensive_score is not none else 'N/A' }}</td>
+                        <td style="color: #8e44ad; font-weight: bold;" title="Enterprising Investor Score">{{ "{:.1f}".format(stock.enterprising_score) if stock.enterprising_score is not none else 'N/A' }}</td>
                         <td>
                             <div class="action-dropdown">
                                 <button type="button" class="btn btn-small btn-secondary action-toggle" data-symbol="{{ stock.symbol }}">Actions</button>
@@ -286,9 +288,21 @@
                                 <!-- Graham Values Section -->
                                 <div>
                                     <h5 style="margin: 10px 0 10px 0; color: #555; font-size: 13px; font-weight: bold; text-transform: uppercase;">Graham Valuation Methods</h5>
-                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 13px;">
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 13px; margin-bottom: 15px;">
                                         <div><strong>Graham Number(%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.graham_number_percent) if stock.graham_number_percent is not none else 'N/A' }}%</span></div>
                                         <div><strong>NCAV / Net-Net (%):</strong><br><span style="font-weight: bold;">{{ "{:.2f}".format(stock.ncav_or_net_net) if stock.ncav_or_net_net is not none else 'N/A' }}%</span></div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-size: 13px;">
+                                        <div style="background: #eaf4fb; border-radius: 6px; padding: 10px;">
+                                            <strong style="color: #2980b9;">Defensive Score</strong><br>
+                                            <span style="font-size: 22px; font-weight: bold; color: #2980b9;">{{ "{:.1f}".format(stock.defensive_score) if stock.defensive_score is not none else 'N/A' }}</span><span style="color: #7f8c8d;"> / 10</span>
+                                            <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">Size, liquidity, 10-yr stability, 20-yr dividends, 33% growth, Graham number, assets, debt</div>
+                                        </div>
+                                        <div style="background: #f5eef8; border-radius: 6px; padding: 10px;">
+                                            <strong style="color: #8e44ad;">Enterprising Score</strong><br>
+                                            <span style="font-size: 22px; font-weight: bold; color: #8e44ad;">{{ "{:.1f}".format(stock.enterprising_score) if stock.enterprising_score is not none else 'N/A' }}</span><span style="color: #7f8c8d;"> / 10</span>
+                                            <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">Size ($100M), CR≥1.5, debt/equity≤110%, 5-yr stability, any dividend, any growth, P/E≤9, P/B≤1.2, NCAV</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -415,7 +429,7 @@ function sortTable(column, direction) {
         let bValue = b.dataset[column];
         
         // Convert to numbers for numeric columns
-        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend', 'rating'].includes(column)) {
+        if (['price', 'low52', 'high52', 'distance', 'pe_forward', 'pe_trailing', 'marketcap', 'dividend', 'rating', 'def_score', 'ent_score'].includes(column)) {
             aValue = parseFloat(aValue) || 0;
             bValue = parseFloat(bValue) || 0;
             return direction === 'asc' ? aValue - bValue : bValue - aValue;

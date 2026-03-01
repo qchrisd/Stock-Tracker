@@ -134,8 +134,8 @@ def _fetch_and_store_all_stocks(app):
                 'eps': info.get('trailingEps'),
                 'book_value_per_share': info.get('bookValue'),
                 **{k: graham_metrics.get(k) for k in (
-                    'graham_number', 'rating_score', 'size_in_sales',
-                    'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
+                    'graham_number', 'rating_score', 'defensive_score', 'enterprising_score',
+                    'size_in_sales', 'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
                     'earnings_stability', 'dividend_record', 'earnings_growth',
                     'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
                 )}
@@ -203,6 +203,8 @@ def _fetch_and_store_all_stocks(app):
                             book_value_per_share=result['book_value_per_share'],
                             graham_number=result.get('graham_number'),
                             rating_score=result.get('rating_score'),
+                            defensive_score=result.get('defensive_score'),
+                            enterprising_score=result.get('enterprising_score'),
                             size_in_sales=result.get('size_in_sales'),
                             current_assets_to_2x_liabilities=result.get('current_assets_to_2x_liabilities'),
                             net_current_assets_to_ltdebt=result.get('net_current_assets_to_ltdebt'),
@@ -326,29 +328,38 @@ def start_scheduler_thread(app):
 # ── Graham Value calculation (local, via yfinance) ───────────────────────────
 
 def get_graham_metrics_from_yfinance(symbol, ticker=None):
-    """Calculate Graham-style investment criteria locally from yfinance data.
+    """Calculate Graham Defensive and Enterprising scores locally from yfinance.
 
-    All percentage fields are 0–100 (higher = better).  The overall
-    rating_score is their sum divided by 100, giving a 0–10 scale.
+    Defensive Investor criteria (Chapter 14 – strict, passive):
+      1. Size in Sales          ≥ $500M revenue
+      2. Current Assets ÷ (2×Current Liabilities) ≥ 1
+      3. Net Current Assets ÷ Long-Term Debt      ≥ 1
+      4. Earnings Stability     – positive EPS every year for 10 years
+      5. Dividend Record        – uninterrupted dividends for 20 years
+      6. Earnings Growth        – EPS ≥ 33% higher than 10 years ago
+      7. Graham Number %        – price ≤ Graham Number (√22.5 × EPS × BV)
+      8. Size in Assets         ≥ $250M total assets
+      9. [2×Equity] ÷ Debt     ≥ 1
 
-    Criteria
-    --------
-    1.  Size in Sales          – 100 % == $500 M revenue
-    2.  Current Assets ÷ (2 × Current Liabilities) – 100 % == ratio ≥ 1
-    3.  Net Current Assets ÷ Long-Term Debt         – 100 % == ratio ≥ 1
-    4.  Earnings Stability     – 100 % == 10 years of positive net income
-    5.  Dividend Record        – 100 % == 20 years paying dividends
-    6.  Earnings Growth        – 100 % == ≥ 33 % growth over available period
-    7.  Graham Number (%)      – 100 % == current price ≤ Graham Number
-    8.  NCAV / Net-Net (%)     – 100 % == current price ≤ NCAV per share
-    9.  [2 × Equity] ÷ Debt   – 100 % == ratio ≥ 1
-    10. Size in Assets         – 100 % == $250 M in total assets
+    Enterprising Investor criteria (Chapter 15 – active, bargain-hunting):
+      1. Size in Sales          ≥ $100M revenue
+      2. Current Ratio          ≥ 1.5  (current assets ÷ current liabilities)
+      3. Total Debt ÷ Equity    ≤ 110%
+      4. Earnings Stability     – positive EPS in last 5 years
+      5. Dividend Record        – any recent dividend payment
+      6. Earnings Growth        – EPS higher than 5 years ago (any positive growth)
+      7. P/E Ratio              ≤ 9
+      8. Price-to-Book          ≤ 1.2
+      9. NCAV %                 – price ≤ NCAV per share
+
+    Each criterion is scored 0–100%.  The score for each type is the mean of
+    its 9 components, rescaled to 0–10.  rating_score = (def + ent) / 2.
     """
     _keys = (
-        'graham_number', 'rating_score', 'size_in_sales',
-        'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
+        'graham_number', 'rating_score', 'defensive_score', 'enterprising_score',
+        'size_in_sales', 'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
         'earnings_stability', 'dividend_record', 'earnings_growth',
-        'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
+        'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets',
     )
     empty = {k: None for k in _keys}
 
@@ -360,30 +371,66 @@ def get_graham_metrics_from_yfinance(symbol, ticker=None):
             return empty
 
         data = dict(empty)
-        scores = []
-
-        current_price = info.get('currentPrice') or info.get('regularMarketPrice')
+        d_scores = []   # Defensive components
+        e_scores = []   # Enterprising components
 
         # ── Helpers ────────────────────────────────────────────────────────────
+        import pandas as _pd
+        import numpy as _np
+
+        def _scalar(val):
+            """Safely coerce any yfinance value (scalar, Series, array) to float or None."""
+            if val is None:
+                return None
+            try:
+                if isinstance(val, _pd.Series):
+                    val = val.dropna()
+                    return float(val.iloc[0]) if not val.empty else None
+                if isinstance(val, (_np.ndarray,)):
+                    return float(val.flat[0]) if val.size else None
+                return float(val)
+            except (TypeError, ValueError, IndexError):
+                return None
+
+        def _pos(val):
+            """Return val as float if it is a finite positive number, else None."""
+            v = _scalar(val)
+            return v if (v is not None and v > 0) else None
+
         def _val(df, *keys):
-            """Return the most-recent non-null value for the first matching row."""
+            """Return the most-recent non-null scalar for the first matching row."""
             if df is None or df.empty:
                 return None
             for k in keys:
                 if k in df.index:
-                    s = df.loc[k].dropna()
-                    if not s.empty:
-                        return float(s.iloc[0])
+                    try:
+                        s = df.loc[k].dropna()
+                        return float(s.iloc[0]) if not s.empty else None
+                    except Exception:
+                        pass
             return None
 
         def _series(df, *keys):
-            """Return the full non-null Series for the first matching row."""
+            """Return the full non-null float Series for the first matching row."""
             if df is None or df.empty:
                 return None
             for k in keys:
                 if k in df.index:
-                    return df.loc[k].dropna()
+                    try:
+                        s = df.loc[k].dropna()
+                        return s.astype(float) if not s.empty else None
+                    except Exception:
+                        pass
             return None
+
+        def _series_vals(series):
+            """Convert a pandas Series to a plain Python list of floats, skipping NaN."""
+            if series is None:
+                return []
+            try:
+                return [float(v) for v in series if _pd.notna(v)]
+            except Exception:
+                return []
 
         try:
             bs = ticker.balance_sheet
@@ -394,149 +441,246 @@ def get_graham_metrics_from_yfinance(symbol, ticker=None):
         except Exception:
             inc = None
 
-        # ── Balance sheet items (info dict first, statement fallback) ──────────
-        current_assets = (info.get('totalCurrentAssets') or
-                          _val(bs, 'Current Assets', 'CurrentAssets'))
-        current_liab   = (info.get('totalCurrentLiabilities') or
-                          _val(bs, 'Current Liabilities', 'CurrentLiabilities'))
-        total_assets   = (info.get('totalAssets') or
-                          _val(bs, 'Total Assets', 'TotalAssets'))
-        total_liab     = (info.get('totalLiab') or
-                          _val(bs, 'Total Liabilities Net Minority Interest',
-                                  'Total Liabilities', 'TotalLiabilities'))
-        lt_debt        = (info.get('longTermDebt') or
-                          _val(bs, 'Long Term Debt', 'LongTermDebt',
-                               'Long Term Debt And Capital Lease Obligation'))
-        equity         = (info.get('totalStockholderEquity') or
-                          _val(bs, 'Stockholders Equity', 'Common Stock Equity',
-                               'Total Equity Gross Minority Interest'))
-        if not equity and info.get('bookValue') and info.get('sharesOutstanding'):
-            equity = info['bookValue'] * info['sharesOutstanding']
-        total_debt     = (info.get('totalDebt') or lt_debt or
-                          _val(bs, 'Total Debt', 'TotalDebt'))
-        shares         = (info.get('sharesOutstanding') or
-                          info.get('impliedSharesOutstanding'))
+        # ── Shared balance-sheet items (always scalars via _scalar/_val) ───────
+        current_assets = _scalar(info.get('totalCurrentAssets')) or \
+                         _val(bs, 'Current Assets', 'CurrentAssets')
+        current_liab   = _scalar(info.get('totalCurrentLiabilities')) or \
+                         _val(bs, 'Current Liabilities', 'CurrentLiabilities')
+        total_assets   = _scalar(info.get('totalAssets')) or \
+                         _val(bs, 'Total Assets', 'TotalAssets')
+        total_liab     = _scalar(info.get('totalLiab')) or \
+                         _val(bs, 'Total Liabilities Net Minority Interest',
+                                 'Total Liabilities', 'TotalLiabilities')
+        lt_debt        = _scalar(info.get('longTermDebt')) or \
+                         _val(bs, 'Long Term Debt', 'LongTermDebt',
+                              'Long Term Debt And Capital Lease Obligation')
+        equity         = _scalar(info.get('totalStockholderEquity')) or \
+                         _val(bs, 'Stockholders Equity', 'Common Stock Equity',
+                              'Total Equity Gross Minority Interest')
+        if equity is None:
+            bv = _scalar(info.get('bookValue'))
+            sh = _scalar(info.get('sharesOutstanding'))
+            if bv and sh:
+                equity = bv * sh
+        total_debt     = _scalar(info.get('totalDebt')) or lt_debt or \
+                         _val(bs, 'Total Debt', 'TotalDebt')
+        shares         = _scalar(info.get('sharesOutstanding')) or \
+                         _scalar(info.get('impliedSharesOutstanding'))
+        eps            = _scalar(info.get('trailingEps'))
+        bvps           = _scalar(info.get('bookValue'))
+        current_price  = _scalar(info.get('currentPrice')) or \
+                         _scalar(info.get('regularMarketPrice'))
+        revenue        = _scalar(info.get('totalRevenue')) or \
+                         _val(inc, 'Total Revenue', 'TotalRevenue')
 
-        # ── 1. Size in Sales (100 % == $500 M) ────────────────────────────────
-        revenue = info.get('totalRevenue') or _val(inc, 'Total Revenue', 'TotalRevenue')
+        # Plain Python lists — safe in all boolean/arithmetic contexts
+        ni_vals  = _series_vals(_series(inc, 'Net Income', 'NetIncome',
+                                        'Net Income Common Stockholders'))
+        eps_raw  = _series_vals(_series(inc, 'Diluted EPS', 'Basic EPS'))
+        eps_vals = eps_raw if len(eps_raw) >= 2 else ni_vals  # fallback to NI
+
+        try:
+            divs = ticker.dividends
+        except Exception:
+            divs = None
+
+        # ── Graham Number (shared) ─────────────────────────────────────────────
+        gn = None
+        if eps and bvps and eps > 0 and bvps > 0:
+            gn = (22.5 * eps * bvps) ** 0.5
+            data['graham_number'] = round(gn, 2)
+
+        # ══════════════════════════════════════════════════════════════════════
+        #  DEFENSIVE INVESTOR (9 criteria)
+        # ══════════════════════════════════════════════════════════════════════
+
+        # D1. Size in Sales ≥ $500M
         if revenue and revenue > 0:
             pct = min(revenue / 500_000_000 * 100, 100)
             data['size_in_sales'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── 2. Current Assets ÷ [2 × Current Liabilities] ────────────────────
+        # D2. Current Assets ÷ (2 × Current Liabilities) ≥ 1
         if current_assets and current_liab and current_liab > 0:
             pct = min(current_assets / (2 * current_liab) * 100, 100)
             data['current_assets_to_2x_liabilities'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            cr = info.get('currentRatio')
+            cr = _scalar(info.get('currentRatio'))
             if cr and cr > 0:
                 pct = min(cr / 2 * 100, 100)
                 data['current_assets_to_2x_liabilities'] = pct
-                scores.append(pct)
+                d_scores.append(pct)
             else:
-                scores.append(0)
+                d_scores.append(0)
 
-        # ── 3. Net Current Assets ÷ Long-Term Debt ────────────────────────────
-        if current_assets and current_liab:
+        # D3. Net Current Assets ÷ Long-Term Debt ≥ 1
+        if current_assets is not None and current_liab is not None:
             nca = current_assets - current_liab
             if lt_debt and lt_debt > 0:
                 pct = min(nca / lt_debt * 100, 100) if nca > 0 else 0
             else:
                 pct = 100.0 if nca > 0 else 0
             data['net_current_assets_to_ltdebt'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── 4. Earnings Stability (100 % == 10 years of positive net income) ──
-        ni_series = _series(inc, 'Net Income', 'NetIncome',
-                            'Net Income Common Stockholders')
-        if ni_series is not None and len(ni_series) > 0:
-            yrs_pos = sum(1 for v in ni_series if v and v > 0)
+        # D4. Earnings Stability – positive NI every year for 10 years
+        if ni_vals:
+            yrs_pos = sum(1 for v in ni_vals if v > 0)
             pct = min(yrs_pos / 10 * 100, 100)
             data['earnings_stability'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── 5. Dividend Record (100 % == 20 years paying dividends) ──────────
-        try:
-            divs = ticker.dividends
-            if divs is not None and not divs.empty:
-                yrs_div = len(divs.index.year.unique())
-                pct = min(yrs_div / 20 * 100, 100)
-                data['dividend_record'] = pct
-                scores.append(pct)
-            else:
-                data['dividend_record'] = 0.0
-                scores.append(0)
-        except Exception:
-            scores.append(0)
+        # D5. Dividend Record – uninterrupted dividends for 20 years
+        if divs is not None and not divs.empty:
+            yrs_div = len(divs.index.year.unique())
+            pct = min(yrs_div / 20 * 100, 100)
+            data['dividend_record'] = pct
+            d_scores.append(pct)
+        else:
+            data['dividend_record'] = 0.0
+            d_scores.append(0)
 
-        # ── 6. Earnings Growth (100 % == ≥ 33 % growth over period) ──────────
-        g_series = _series(inc, 'Diluted EPS', 'Basic EPS')
-        if g_series is None or len(g_series) < 2:
-            g_series = _series(inc, 'Net Income', 'NetIncome')
-        if g_series is not None and len(g_series) >= 2:
-            oldest = float(g_series.iloc[-1])
-            newest = float(g_series.iloc[0])
+        # D6. Earnings Growth – EPS ≥ 33% higher than earliest available year
+        if len(eps_vals) >= 2:
+            oldest = eps_vals[-1]
+            newest = eps_vals[0]
             if oldest > 0:
                 pct = min(max((newest - oldest) / oldest / 0.33 * 100, 0), 100)
                 data['earnings_growth'] = pct
-                scores.append(pct)
+                d_scores.append(pct)
             else:
                 data['earnings_growth'] = 0.0
-                scores.append(0)
+                d_scores.append(0)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── 7. Graham Number (%) ──────────────────────────────────────────────
-        eps  = info.get('trailingEps')
-        bvps = info.get('bookValue')
-        if eps and bvps and eps > 0 and bvps > 0 and current_price and current_price > 0:
-            gn = (22.5 * eps * bvps) ** 0.5
-            data['graham_number'] = round(gn, 2)
+        # D7. Graham Number % – price ≤ Graham Number
+        if gn and current_price and current_price > 0:
             pct = min(gn / current_price * 100, 100)
             data['graham_number_percent'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── 8. NCAV / Net-Net (%) ─────────────────────────────────────────────
-        if (current_assets and total_liab and shares and shares > 0
-                and current_price and current_price > 0):
-            ncav_ps = (current_assets - total_liab) / shares
-            pct = min(ncav_ps / current_price * 100, 100) if ncav_ps > 0 else 0
-            data['ncav_or_net_net'] = pct
-            scores.append(pct)
-        else:
-            scores.append(0)
-
-        # ── 9. [2 × Equity] ÷ Debt ───────────────────────────────────────────
-        if equity and equity > 0:
-            if total_debt and total_debt > 0:
-                pct = min(2 * equity / total_debt * 100, 100)
-            else:
-                pct = 100.0          # no debt is ideal
-            data['equity_to_debt'] = pct
-            scores.append(pct)
-        else:
-            scores.append(0)
-
-        # ── 10. Size in Assets (100 % == $250 M) ─────────────────────────────
+        # D8. Size in Assets ≥ $250M
         if total_assets and total_assets > 0:
             pct = min(total_assets / 250_000_000 * 100, 100)
             data['size_in_assets'] = pct
-            scores.append(pct)
+            d_scores.append(pct)
         else:
-            scores.append(0)
+            d_scores.append(0)
 
-        # ── Rating Score: sum of percentages ÷ 100 → 0–10 scale ──────────────
-        data['rating_score'] = round(sum(scores) / 100, 2) if scores else 0.0
+        # D9. [2×Equity] ÷ Debt ≥ 1
+        if equity and equity > 0:
+            pct = min(2 * equity / total_debt * 100, 100) if (total_debt and total_debt > 0) else 100.0
+            data['equity_to_debt'] = pct
+            d_scores.append(pct)
+        else:
+            d_scores.append(0)
+
+        data['defensive_score'] = round(sum(d_scores) / len(d_scores) / 10, 2)
+
+        # ══════════════════════════════════════════════════════════════════════
+        #  ENTERPRISING INVESTOR (9 criteria)
+        # ══════════════════════════════════════════════════════════════════════
+
+        # E1. Size in Sales ≥ $100M
+        if revenue and revenue > 0:
+            pct = min(revenue / 100_000_000 * 100, 100)
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        # E2. Current Ratio ≥ 1.5
+        cr_val = None
+        if current_assets and current_liab and current_liab > 0:
+            cr_val = current_assets / current_liab
+        else:
+            cr_val = _scalar(info.get('currentRatio'))
+        if cr_val and cr_val > 0:
+            pct = min(cr_val / 1.5 * 100, 100)
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        # E3. Total Debt ÷ Equity ≤ 110%
+        if equity and equity > 0 and total_debt is not None:
+            ratio = total_debt / equity
+            pct = max(min((1.1 - ratio) / 1.1 * 100, 100), 0)
+            e_scores.append(pct)
+        elif equity and equity > 0:
+            e_scores.append(100)  # no debt
+        else:
+            e_scores.append(0)
+
+        # E4. Earnings Stability – positive NI in last 5 years
+        if ni_vals:
+            recent5 = ni_vals[:5]
+            yrs_pos_5 = sum(1 for v in recent5 if v > 0)
+            pct = min(yrs_pos_5 / 5 * 100, 100)
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        # E5. Dividend Record – any recent dividend payment
+        if divs is not None and not divs.empty:
+            e_scores.append(100)
+        else:
+            e_scores.append(0)
+
+        # E6. Earnings Growth – EPS higher than 5 years ago
+        if len(eps_vals) >= 2:
+            n = min(len(eps_vals), 5)
+            oldest5 = eps_vals[n - 1]
+            newest5 = eps_vals[0]
+            if oldest5 > 0 and newest5 > oldest5:
+                pct = min((newest5 - oldest5) / oldest5 * 100, 100)
+                e_scores.append(pct)
+            else:
+                e_scores.append(0)
+        else:
+            e_scores.append(0)
+
+        # E7. P/E ≤ 9
+        trailing_pe = _scalar(info.get('trailingPE'))
+        if trailing_pe and trailing_pe > 0:
+            pct = min(9 / trailing_pe * 100, 100)
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        # E8. Price-to-Book ≤ 1.2
+        pb = _scalar(info.get('priceToBook'))
+        if pb is None and bvps and bvps > 0 and current_price and current_price > 0:
+            pb = current_price / bvps
+        if pb and pb > 0:
+            pct = min(1.2 / pb * 100, 100)
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        # E9. NCAV % – price ≤ NCAV per share
+        if (current_assets is not None and total_liab is not None
+                and shares and shares > 0 and current_price and current_price > 0):
+            ncav_ps = (current_assets - total_liab) / shares
+            pct = min(ncav_ps / current_price * 100, 100) if ncav_ps > 0 else 0
+            data['ncav_or_net_net'] = pct
+            e_scores.append(pct)
+        else:
+            e_scores.append(0)
+
+        data['enterprising_score'] = round(sum(e_scores) / len(e_scores) / 10, 2)
+
+        # Legacy composite
+        data['rating_score'] = round((data['defensive_score'] + data['enterprising_score']) / 2, 2)
+
         return data
 
     except Exception as e:
@@ -1437,8 +1581,8 @@ def get_graham_metrics_api(symbol):
         cached = cache_session.query(StockCache).filter_by(symbol=symbol).first()
         if cached and cached.rating_score is not None:
             return jsonify({k: getattr(cached, k) for k in (
-                'graham_number', 'rating_score', 'size_in_sales',
-                'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
+                'graham_number', 'rating_score', 'defensive_score', 'enterprising_score',
+                'size_in_sales', 'current_assets_to_2x_liabilities', 'net_current_assets_to_ltdebt',
                 'earnings_stability', 'dividend_record', 'earnings_growth',
                 'graham_number_percent', 'ncav_or_net_net', 'equity_to_debt', 'size_in_assets'
             )})
@@ -1562,8 +1706,8 @@ def research():
                         'dividend_yield': info.get('dividendYield', 0),
                         'pe_ratio': info.get('trailingPE'), 'eps': eps,
                         'book_value_per_share': bvps, 'graham_number': gn,
-                        **{k: gm.get(k) for k in ('rating_score','size_in_sales',
-                            'current_assets_to_2x_liabilities','net_current_assets_to_ltdebt',
+                        **{k: gm.get(k) for k in ('rating_score', 'defensive_score', 'enterprising_score',
+                            'size_in_sales', 'current_assets_to_2x_liabilities','net_current_assets_to_ltdebt',
                             'earnings_stability','dividend_record','earnings_growth',
                             'graham_number_percent','ncav_or_net_net','equity_to_debt','size_in_assets')},
                     })
@@ -1590,6 +1734,7 @@ def research():
                     'dividend_yield': stock.dividend_yield, 'pe_ratio': stock.trailing_pe,
                     'eps': stock.eps, 'book_value_per_share': stock.book_value_per_share,
                     'graham_number': stock.graham_number, 'rating_score': stock.rating_score,
+                    'defensive_score': stock.defensive_score, 'enterprising_score': stock.enterprising_score,
                     'size_in_sales': stock.size_in_sales,
                     'current_assets_to_2x_liabilities': stock.current_assets_to_2x_liabilities,
                     'net_current_assets_to_ltdebt': stock.net_current_assets_to_ltdebt,

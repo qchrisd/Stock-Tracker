@@ -45,7 +45,9 @@ class StockCache(CacheBase):
     ncav_or_net_net = Column(Float)
     equity_to_debt = Column(Float)
     size_in_assets = Column(Float)
-    rating_score = Column(Float)
+    rating_score = Column(Float)       # legacy average kept for backward compat
+    defensive_score = Column(Float)    # Graham Defensive Investor score  0-10
+    enterprising_score = Column(Float) # Graham Enterprising Investor score 0-10
 
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
 
