@@ -102,8 +102,8 @@ class CacheScheduler(CacheBase):
 
     id = Column(Integer, primary_key=True)
     enabled = Column(Boolean, default=False, nullable=False)
-    day_of_week = Column(Integer, default=0, nullable=False)   # 0 = Monday … 6 = Sunday (UTC)
-    hour = Column(Integer, default=2, nullable=False)           # 0-23 UTC
+    day_of_week = Column(Integer, default=0, nullable=False)   # 0 = Monday … 6 = Sunday (ET)
+    hour = Column(Integer, default=2, nullable=False)           # 0-23 ET
     minute = Column(Integer, default=0, nullable=False)         # 0-59
     last_run = Column(DateTime)
     next_run = Column(DateTime)

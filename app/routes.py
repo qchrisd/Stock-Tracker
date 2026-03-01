@@ -240,13 +240,18 @@ def _fetch_and_store_all_stocks(app):
             cache_session.remove()
 
 
-def _compute_next_utc_run(day_of_week_utc, hour_utc, minute_utc):
-    now = datetime.now(_UTC_TZ)
-    days_ahead = (day_of_week_utc - now.weekday()) % 7
-    candidate = now.replace(hour=hour_utc, minute=minute_utc, second=0, microsecond=0) + timedelta(days=days_ahead)
-    if candidate <= now:
-        candidate += timedelta(weeks=1)
-    return candidate
+def _compute_next_utc_run(day_of_week_et, hour_et, minute_et):
+    """Return the next UTC datetime for a schedule expressed in Eastern Time.
+
+    Working entirely in ET avoids DST-unsafe UTC day/hour/minute arithmetic.
+    """
+    now_et = datetime.now(_ET_TZ)
+    days_ahead = (day_of_week_et - now_et.weekday()) % 7
+    candidate_et = now_et.replace(hour=hour_et, minute=minute_et,
+                                   second=0, microsecond=0) + timedelta(days=days_ahead)
+    if candidate_et <= now_et:
+        candidate_et += timedelta(weeks=1)
+    return candidate_et.astimezone(_UTC_TZ)
 
 
 def _scheduler_loop(app):
@@ -1439,10 +1444,9 @@ def get_cache_scheduler_config():
             cs.add(scheduler)
             cs.commit()
         day_names = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-        et_day, et_hour, et_min = _convert_schedule_tz(
-            scheduler.day_of_week, scheduler.hour, scheduler.minute, _UTC_TZ, _ET_TZ)
-        return jsonify({'enabled': scheduler.enabled, 'day_of_week': et_day,
-                        'day_name': day_names[et_day], 'hour': et_hour, 'minute': et_min,
+        return jsonify({'enabled': scheduler.enabled, 'day_of_week': scheduler.day_of_week,
+                        'day_name': day_names[scheduler.day_of_week], 'hour': scheduler.hour,
+                        'minute': scheduler.minute,
                         'last_run': (scheduler.last_run.isoformat()+'Z') if scheduler.last_run else None,
                         'next_run': (scheduler.next_run.isoformat()+'Z') if scheduler.next_run else None})
     except Exception as e:
@@ -1461,16 +1465,13 @@ def update_cache_scheduler_config():
             cs.commit()
         if 'enabled' in data:
             scheduler.enabled = bool(data['enabled'])
-        et_day, et_hour, et_min = _convert_schedule_tz(
-            scheduler.day_of_week, scheduler.hour, scheduler.minute, _UTC_TZ, _ET_TZ)
-        if 'day_of_week' in data: et_day = int(data['day_of_week'])
-        if 'hour' in data: et_hour = int(data['hour'])
-        if 'minute' in data: et_min = int(data['minute'])
-        utc_day, utc_hour, utc_min = _convert_schedule_tz(et_day, et_hour, et_min, _ET_TZ, _UTC_TZ)
-        scheduler.day_of_week = utc_day
-        scheduler.hour = utc_hour
-        scheduler.minute = utc_min
-        scheduler.next_run = (_compute_next_utc_run(utc_day, utc_hour, utc_min).replace(tzinfo=None)
+        et_day   = int(data.get('day_of_week', scheduler.day_of_week))
+        et_hour  = int(data.get('hour',        scheduler.hour))
+        et_min   = int(data.get('minute',      scheduler.minute))
+        scheduler.day_of_week = et_day
+        scheduler.hour = et_hour
+        scheduler.minute = et_min
+        scheduler.next_run = (_compute_next_utc_run(et_day, et_hour, et_min).replace(tzinfo=None)
                                if scheduler.enabled else None)
         scheduler.updated_at = datetime.utcnow()
         cs.commit()
