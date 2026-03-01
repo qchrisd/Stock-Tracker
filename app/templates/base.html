@@ -33,7 +33,6 @@
         <header>
             <h1 class="logo">📈 Stock Tracker</h1>
             <nav class="navbar">
-                <a href="{{ url_for('main.manage') }}" class="nav-link">Manage</a>
                 <a href="{{ url_for('main.dashboard') }}" class="nav-link">Dashboard</a>
 
                 <!-- Portfolios dropdown -->
@@ -65,7 +64,7 @@
                         <a href="{{ url_for('main.manage') }}">+ New Watchlist</a>
                     </div>
                 </div>
-
+                <a href="{{ url_for('main.manage') }}" class="nav-link">Manage</a>
                 <a href="{{ url_for('main.research') }}" class="nav-link">Research</a>
             </nav>
         </header>
