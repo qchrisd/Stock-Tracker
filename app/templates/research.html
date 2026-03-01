@@ -14,21 +14,21 @@
         <strong>Data Cache Status:</strong>
         <span id="cache-status" style="color: #27ae60; font-weight: bold;">{{ cache_status if cache_status else 'No cached data' }}</span>
     </div>
-    <button type="button" id="download-btn" class="btn btn-success" onclick="startCacheDownload()">
-        📥 Download Stock Data
-    </button>
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <button type="button" id="download-btn" class="btn btn-success" onclick="startCacheDownload()">
+            📥 Download Stock Data
+        </button>
+        <button type="button" id="cancel-btn" class="btn btn-danger" onclick="cancelCacheDownload()" style="display: none;">
+            ❌ Cancel
+        </button>
+    </div>
 </div>
 
 <!-- Progress Bar (hidden by default) -->
 <div id="progress-container" style="display: none; margin-bottom: 20px;">
-    <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <strong>Downloading and caching stock data...</strong>
-            <span id="progress-status">Initializing...</span>
-        </div>
-        <button type="button" id="cancel-btn" class="btn btn-danger btn-sm" onclick="cancelCacheDownload()" style="display: none;">
-            ❌ Cancel
-        </button>
+    <div style="margin-bottom: 10px;">
+        <strong>Downloading and caching stock data...</strong>
+        <span id="progress-status">Initializing...</span>
     </div>
     <div style="width: 100%; background-color: #ecf0f1; border-radius: 10px; overflow: hidden; height: 30px;">
         <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
@@ -240,14 +240,12 @@
                             <div class="action-dropdown">
                                 <button type="button" class="btn btn-small btn-secondary action-toggle" data-symbol="{{ stock.symbol }}">Actions</button>
                                 <div class="action-menu" id="actions-{{ stock.symbol }}" style="display: none;">
-                                    <form method="GET" action="{{ url_for('main.add_stock', type='portfolio') }}" style="display: inline;">
-                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
-                                        <button type="submit" class="btn btn-small btn-primary btn-block">Add to Portfolio</button>
-                                    </form>
-                                    <form method="GET" action="{{ url_for('main.add_stock', type='watchlist') }}" style="display: inline;">
-                                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
-                                        <button type="submit" class="btn btn-small btn-info btn-block">Add to Watchlist</button>
-                                    </form>
+                                    {% for p in nav_portfolios %}
+                                    <a href="{{ url_for('main.add_to_portfolio', portfolio_id=p.id, symbol=stock.symbol) }}" class="btn btn-small btn-primary btn-block">➕ {{ p.name }}</a>
+                                    {% endfor %}
+                                    {% for w in nav_watchlists %}
+                                    <a href="{{ url_for('main.add_to_watchlist', watchlist_id=w.id, symbol=stock.symbol) }}" class="btn btn-small btn-info btn-block">👁 {{ w.name }}</a>
+                                    {% endfor %}
                                 </div>
                             </div>
                         </td>
@@ -635,13 +633,23 @@ function _applyCacheState(data) {
         cacheStatus.style.color = '#27ae60';
         cancelBtn.style.display = 'none';
         // Auto-hide after 5 s
-        setTimeout(() => { progressContainer.style.display = 'none'; }, 5000);
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            loadSchedulerSettings();
+        }, 5000);
 
     } else if (status === 'cancelled') {
         progressStatus.textContent = '⚠️ Cancelled';
         progressDetails.textContent = data.message || '';
+        if (data.successful > 0) {
+            cacheStatus.textContent = `${data.successful} stocks cached`;
+            cacheStatus.style.color = '#e67e22';
+        }
         cancelBtn.style.display = 'none';
-        setTimeout(() => { progressContainer.style.display = 'none'; }, 4000);
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            loadSchedulerSettings();
+        }, 4000);
 
     } else if (status === 'error') {
         progressStatus.textContent = '✗ Error occurred';
@@ -716,6 +724,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(() => {});
+
+    // Passive background check every 30 s so the page picks up scheduler-triggered
+    // jobs even when the user has had the page open for a while without clicking anything.
+    setInterval(function() {
+        if (_cacheStatusPoller) return; // already polling — nothing to do
+        fetch('/api/cache-status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.running) {
+                    _applyCacheState(data);
+                    _startPolling();
+                }
+            })
+            .catch(() => {});
+    }, 30000);
 });
 
 function resetFilters() {

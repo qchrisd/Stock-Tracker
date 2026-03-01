@@ -1,53 +1,39 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Tracker - Record Dividend{% endblock %}
-
 {% block content %}
 <div class="portfolio-header">
-    <h2>Record Dividend - {{ symbol }}</h2>
+    <h2>Record Dividend – {{ symbol }}</h2>
     <p class="subtitle">Record dividend payments and optional reinvestments</p>
 </div>
 
-<div class="form-container">
-    <form method="POST" class="stock-form">
+<div class="form-container" style="max-width:500px; margin:30px auto;">
+    <form method="POST" action="{{ url_for('main.record_dividend', portfolio_id=portfolio_id, symbol=symbol) }}" class="stock-form">
         <fieldset>
             <legend>Dividend Details</legend>
-            
             <div class="form-group">
                 <label for="date">Dividend Date *</label>
-                <input type="date" id="date" name="date" required onchange="updateReinvestmentPrice()">
-                <small>The date you received the dividend</small>
+                <input type="date" id="date" name="date" required class="form-input">
             </div>
-            
             <div class="form-group">
                 <label for="amount">Total Dividend Amount ($) *</label>
-                <input type="number" id="amount" name="amount" step="0.01" min="0" placeholder="e.g., 50.00" required>
-                <small>Total dividend amount received</small>
+                <input type="number" id="amount" name="amount" step="0.01" min="0" placeholder="e.g. 50.00" required class="form-input">
             </div>
-            
-            <div class="form-group checkbox">
-                <input type="checkbox" id="reinvest" name="reinvest">
-                <label for="reinvest">Reinvest dividend</label>
-                <small>Check if you reinvested this dividend into more shares</small>
+            <div class="form-group" style="display:flex; align-items:center; gap:10px;">
+                <input type="checkbox" id="reinvest" name="reinvest" style="width:auto;">
+                <label for="reinvest" style="margin-bottom:0;">Reinvest dividend</label>
             </div>
-            
-            <div id="reinvestment-section" style="display:none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
-                <h3>Reinvestment Details</h3>
-                
+            <div id="reinvestment-section" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #eee;">
+                <h4 style="margin-top:0;">Reinvestment Details</h4>
                 <div class="form-group">
-                    <label for="reinvest_price">Price per Share at Reinvestment ($)</label>
-                    <input type="text" id="reinvest_price" name="reinvest_price" readonly placeholder="Select dividend date to fetch price" style="background-color: #f5f5f5; cursor: not-allowed;">
-                    <small>Automatically fetched from market data</small>
+                    <label for="reinvest_price">Price per Share ($)</label>
+                    <input type="number" id="reinvest_price" name="reinvest_price" step="0.01" min="0" class="form-input" placeholder="e.g. 150.00">
+                    <small>Price per share at time of reinvestment</small>
                 </div>
-                
-                <div class="form-group">
-                    <p id="reinvest-calc" style="color: #666; font-size: 14px;"></p>
-                </div>
+                <div id="reinvest-calc" style="color:#666; font-size:14px;"></div>
             </div>
-            
-            <div class="form-group">
+            <div class="form-group" style="display:flex; gap:10px; margin-top:18px;">
                 <button type="submit" class="btn btn-primary">Record Dividend</button>
-                <a href="{{ url_for('main.portfolio') }}" class="btn btn-secondary">Cancel</a>
+                <a href="{{ url_for('main.portfolio_view', portfolio_id=portfolio_id) }}" class="btn btn-secondary">Cancel</a>
             </div>
         </fieldset>
     </form>
@@ -56,153 +42,32 @@
 <script>
 const reinvestCheckbox = document.getElementById('reinvest');
 const reinvestmentSection = document.getElementById('reinvestment-section');
-const dateInput = document.getElementById('date');
 const amountInput = document.getElementById('amount');
 const priceInput = document.getElementById('reinvest_price');
 const calcDisplay = document.getElementById('reinvest-calc');
-const symbol = '{{ symbol }}';
-
 reinvestCheckbox.addEventListener('change', function() {
     reinvestmentSection.style.display = this.checked ? 'block' : 'none';
-    if (this.checked) {
-        priceInput.required = true;
-        updateReinvestmentPrice();
-    } else {
-        priceInput.required = false;
-        priceInput.value = '';
-        calcDisplay.innerHTML = '';
-    }
+    priceInput.required = this.checked;
+    if (!this.checked) { priceInput.value = ''; calcDisplay.innerHTML = ''; }
 });
-
-const updateReinvestmentPrice = async () => {
-    if (!reinvestCheckbox.checked) return;
-    
-    const dateValue = dateInput.value;
-    if (!dateValue) {
-        priceInput.placeholder = 'Select dividend date to fetch price';
-        priceInput.value = '';
-        return;
-    }
-    
-    // Show loading state
-    priceInput.placeholder = 'Fetching...';
-    priceInput.value = '';
-    
-    try {
-        // Fetch price from server
-        const response = await fetch(`/api/stock-price/${symbol}?date=${dateValue}`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.price) {
-                priceInput.value = data.price.toFixed(2);
-                updateCalculation();
-            } else {
-                priceInput.placeholder = 'Price not available';
-                priceInput.value = '';
-            }
-        } else {
-            priceInput.placeholder = 'Error fetching price';
-            priceInput.value = '';
-        }
-    } catch (error) {
-        console.error('Error fetching price:', error);
-        priceInput.placeholder = 'Error fetching price';
-        priceInput.value = '';
-    }
-};
-
-const updateCalculation = () => {
-    const amount = parseFloat(amountInput.value) || 0;
+function updateCalc() {
+    const amt = parseFloat(amountInput.value) || 0;
     const price = parseFloat(priceInput.value) || 0;
-    
-    if (amount > 0 && price > 0) {
-        const shares = (amount / price).toFixed(4);
-        calcDisplay.innerHTML = `<strong>Shares purchased:</strong> ${shares} shares`;
-    } else {
-        calcDisplay.innerHTML = '';
-    }
-};
-
-amountInput.addEventListener('input', updateCalculation);
-priceInput.addEventListener('input', updateCalculation);
+    if (amt > 0 && price > 0) {
+        calcDisplay.innerHTML = '<strong>Shares purchased:</strong> ' + (amt/price).toFixed(4);
+    } else { calcDisplay.innerHTML = ''; }
+}
+amountInput.addEventListener('input', updateCalc);
+priceInput.addEventListener('input', updateCalc);
 </script>
 
 <style>
-.form-container {
-    max-width: 500px;
-    margin: 30px auto;
-    padding: 20px;
-}
-
-.stock-form {
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.form-group {
-    margin-bottom: 20px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 600;
-    color: #333;
-}
-
-.form-group input[type="number"] {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-.form-group input[type="number"]:focus {
-    outline: none;
-    border-color: #3498db;
-    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
-}
-
-.form-group.checkbox {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.form-group.checkbox input[type="checkbox"] {
-    width: auto;
-    margin: 0;
-}
-
-.form-group small {
-    display: block;
-    margin-top: 5px;
-    color: #666;
-    font-size: 12px;
-}
-
-fieldset {
-    border: none;
-    padding: 0;
-}
-
-legend {
-    font-size: 18px;
-    font-weight: 600;
-    margin-bottom: 20px;
-    color: #333;
-}
-
-h3 {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 15px;
-}
+.stock-form { background:white; border:1px solid #ddd; border-radius:8px; padding:24px; box-shadow:0 2px 4px rgba(0,0,0,.1); }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; margin-bottom:6px; font-weight:600; color:#333; font-size:14px; }
+.form-input { width:100%; padding:9px 11px; border:1px solid #ddd; border-radius:4px; font-size:14px; box-sizing:border-box; }
+.form-group small { display:block; margin-top:5px; color:#888; font-size:12px; }
+fieldset { border:none; padding:0; }
+legend { font-size:16px; font-weight:600; margin-bottom:18px; color:#333; }
 </style>
 {% endblock %}

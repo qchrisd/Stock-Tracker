@@ -1,343 +1,87 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Tracker - Dashboard{% endblock %}
-
 {% block content %}
 <div class="portfolio-header">
     <h2>Dashboard</h2>
-    {% if dashboard %}
-        <p class="subtitle">Overview of {{ dashboard|length }} stock{{ 's' if dashboard|length != 1 else '' }} (Portfolio + Watchlist)</p>
-    {% endif %}
+    <p class="subtitle">Overview of all your portfolios and watchlists</p>
 </div>
 
-{% if dashboard %}
-    <div class="chart-container">
-        <h3>Portfolio Average Performance vs S&P 500</h3>
-        
-        <div class="chart-timeframe-buttons">
-            <button class="timeframe-btn" data-timeframe="1d">1D</button>
-            <button class="timeframe-btn" data-timeframe="5d">5D</button>
-            <button class="timeframe-btn" data-timeframe="30d">1M</button>
-            <button class="timeframe-btn" data-timeframe="6m">6M</button>
-            <button class="timeframe-btn" data-timeframe="1y">1Y</button>
-            <button class="timeframe-btn" data-timeframe="ytd">YTD</button>
-            <button class="timeframe-btn active" data-timeframe="all">All</button>
+<!-- Portfolio Cards -->
+{% if portfolio_cards %}
+<section style="margin-bottom: 40px;">
+    <h3 style="margin-bottom: 16px;">Portfolios</h3>
+    <div class="dashboard-cards">
+        {% for card in portfolio_cards %}
+        <a href="{{ url_for('main.portfolio_view', portfolio_id=card.meta.id) }}" class="dashboard-card-link">
+        <div class="dashboard-card">
+            <div class="dashboard-card-name">{{ card.meta.name }}</div>
+            <div class="dashboard-card-sub">{{ card.active_stocks }} active / {{ card.total_stocks }} total stocks</div>
+            {% if card.total_current_value %}
+            <div class="dashboard-card-value">${{ "{:,.2f}".format(card.total_current_value) }}</div>
+            {% endif %}
+            {% if card.unrealized_gains is not none %}
+            <div class="dashboard-card-gain {% if card.unrealized_gains >= 0 %}positive{% else %}negative{% endif %}">
+                {{ "↑" if card.unrealized_gains >= 0 else "↓" }}
+                Unrealized ${{ "{:,.2f}".format(card.unrealized_gains|abs) }}
+            </div>
+            {% endif %}
+            {% if card.realized_gains %}
+            <div class="dashboard-card-realized">Realized ${{ "{:,.2f}".format(card.realized_gains) }}</div>
+            {% endif %}
         </div>
-        
-        <div id="portfolioAverageChart" class="chart"></div>
+        </a>
+        {% endfor %}
+        <a href="{{ url_for('main.manage') }}" class="dashboard-card-link">
+            <div class="dashboard-card dashboard-card-new">+ New Portfolio</div>
+        </a>
     </div>
-
-    <div class="stocks-table-container">
-        <table class="stocks-table">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th>Account</th>
-                    <th>Current Market Value</th>
-                    <th>Unrealized Gain/Loss</th>
-                    <th>Realized Gain/Loss</th>
-                    <th>% Change</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Portfolio Average Row -->
-                {% if summary.account_initial_value is not none %}
-                    <tr class="average-row portfolio-average" data-toggle="portfolio">
-                        <td class="toggle-cell">
-                            <span class="toggle-arrow">▶</span>
-                        </td>
-                        <td class="symbol-cell"><strong>Portfolio</strong></td>
-                        <td>
-                            {% if summary.portfolio_current_value %}
-                                ${{ "{:,.2f}".format(summary.portfolio_current_value) }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if summary.portfolio_unrealized_gains is not none %}
-                                <span class="{% if summary.portfolio_unrealized_gains >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if summary.portfolio_unrealized_gains >= 0 else "↓" }}
-                                    ${{ "{:,.2f}".format(summary.portfolio_unrealized_gains|abs) }}
-                                </span>
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
-                        <td>
-                            <span class="{% if summary.portfolio_realized_gains >= 0 %}positive{% else %}negative{% endif %}">
-                                {{ "↑" if summary.portfolio_realized_gains >= 0 else "↓" }}
-                                ${{ "{:,.2f}".format(summary.portfolio_realized_gains|abs) }}
-                            </span>
-                        </td>
-                        <td>
-                            {% if summary.portfolio_percent_change is not none %}
-                                <span class="percent-change {% if summary.portfolio_percent_change >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if summary.portfolio_percent_change >= 0 else "↓" }}
-                                    {{ "%.2f"|format(summary.portfolio_percent_change) }}%
-                                </span>
-                            {% else %}
-                                —
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endif %}
-                
-                <!-- Portfolio Detail Rows (hidden by default) -->
-                {% for item in dashboard %}
-                    {% if not item.stock.is_watchlist %}
-                        <tr class="detail-row portfolio-detail" style="display: none;" data-parent="portfolio">
-                            <td></td>
-                            <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
-                            <td>
-                                {% if item.current_value %}
-                                    ${{ "{:,.2f}".format(item.current_value) }}
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% set unrealized = item.current_value - item.stock.get_current_cost_basis_from_transactions() if item.current_value else 0 %}
-                                <span class="{% if unrealized >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if unrealized >= 0 else "↓" }}
-                                    ${{ "{:,.2f}".format(unrealized|abs) }}
-                                </span>
-                            </td>
-                            <td>
-                                {% set realized = item.stock.get_realized_gains_from_transactions() %}
-                                <span class="{% if realized >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if realized >= 0 else "↓" }}
-                                    ${{ "{:,.2f}".format(realized|abs) }}
-                                </span>
-                            </td>
-                            <td>
-                                {% if item.percent_change is not none %}
-                                    <span class="percent-change {% if item.percent_change >= 0 %}positive{% else %}negative{% endif %}">
-                                        {{ "↑" if item.percent_change >= 0 else "↓" }}
-                                        {{ "%.2f"|format(item.percent_change) }}%
-                                    </span>
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endif %}
-                {% endfor %}
-                
-                <!-- Watchlist Average Row -->
-                {% if summary.watchlist_avg_shares %}
-                    <tr class="average-row watchlist-average" data-toggle="watchlist">
-                        <td class="toggle-cell">
-                            <span class="toggle-arrow">▶</span>
-                        </td>
-                        <td class="symbol-cell"><strong>Watchlist</strong></td>
-                        <td>—</td>
-                        <td>—</td>
-                        <td>—</td>
-                        <td>
-                            {% if summary.watchlist_avg_percent is not none %}
-                                <span class="percent-change {% if summary.watchlist_avg_percent >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if summary.watchlist_avg_percent >= 0 else "↓" }}
-                                    {{ "%.2f"|format(summary.watchlist_avg_percent) }}%
-                                </span>
-                            {% else %}
-                                <span class="error">N/A</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endif %}
-                
-                <!-- Watchlist Detail Rows (hidden by default) -->
-                {% for item in dashboard %}
-                    {% if item.stock.is_watchlist %}
-                        <tr class="detail-row watchlist-detail" style="display: none;" data-parent="watchlist">
-                            <td></td>
-                            <td class="symbol-cell"><strong>{{ item.stock.symbol }}</strong></td>
-                            <td>
-                                {% if item.current_value %}
-                                    ${{ "{:,.2f}".format(item.current_value) }}
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% set unrealized = item.current_value - item.stock.get_current_cost_basis_from_transactions() if item.current_value else 0 %}
-                                <span class="{% if unrealized >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if unrealized >= 0 else "↓" }}
-                                    ${{ "{:,.2f}".format(unrealized|abs) }}
-                                </span>
-                            </td>
-                            <td>
-                                {% set realized = item.stock.get_realized_gains_from_transactions() %}
-                                <span class="{% if realized >= 0 %}positive{% else %}negative{% endif %}">
-                                    {{ "↑" if realized >= 0 else "↓" }}
-                                    ${{ "{:,.2f}".format(realized|abs) }}
-                                </span>
-                            </td>
-                            <td>
-                                {% if item.percent_change is not none %}
-                                    <span class="percent-change {% if item.percent_change >= 0 %}positive{% else %}negative{% endif %}">
-                                        {{ "↑" if item.percent_change >= 0 else "↓" }}
-                                        {{ "%.2f"|format(item.percent_change) }}%
-                                    </span>
-                                {% else %}
-                                    <span class="error">N/A</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endif %}
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-{% else %}
-    <div class="empty-state">
-        <h3>No stocks tracked yet</h3>
-        <p>Add stocks to your portfolio or watchlist to see them here.</p>
-        <a href="{{ url_for('main.portfolio') }}" class="btn btn-primary">Go to Portfolio</a>
-    </div>
+</section>
 {% endif %}
 
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Handle expand/collapse for average rows
-    const averageRows = document.querySelectorAll('.average-row');
-    
-    averageRows.forEach(row => {
-        row.style.cursor = 'pointer';
-        
-        row.addEventListener('click', function(e) {
-            // Prevent if clicking on non-toggle elements
-            if (e.target.closest('.toggle-cell')) {
-                toggleDetails(this);
-            } else if (!e.target.closest('a') && !e.target.closest('form')) {
-                toggleDetails(this);
-            }
-        });
-    });
-    
-    function toggleDetails(averageRow) {
-        const toggleId = averageRow.getAttribute('data-toggle');
-        const detailRows = document.querySelectorAll(`.detail-row[data-parent="${toggleId}"]`);
-        const toggleArrow = averageRow.querySelector('.toggle-arrow');
-        
-        // Toggle visibility
-        const isHidden = detailRows[0].style.display === 'none';
-        detailRows.forEach(row => {
-            row.style.display = isHidden ? 'table-row' : 'none';
-        });
-        
-        // Rotate arrow
-        if (toggleArrow) {
-            toggleArrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
-        }
-        
-        // Toggle active class for styling
-        averageRow.classList.toggle('expanded', isHidden);
-    }
+<!-- Watchlist Cards -->
+{% if watchlist_cards %}
+<section>
+    <h3 style="margin-bottom: 16px;">Watchlists</h3>
+    <div class="dashboard-cards">
+        {% for card in watchlist_cards %}
+        <a href="{{ url_for('main.watchlist_view', watchlist_id=card.meta.id) }}" class="dashboard-card-link">
+        <div class="dashboard-card">
+            <div class="dashboard-card-name">{{ card.meta.name }}</div>
+            <div class="dashboard-card-sub">{{ card.stock_count }} stock{{ 's' if card.stock_count != 1 else '' }} monitored</div>
+        </div>
+        </a>
+        {% endfor %}
+        <a href="{{ url_for('main.manage') }}" class="dashboard-card-link">
+            <div class="dashboard-card dashboard-card-new">+ New Watchlist</div>
+        </a>
+    </div>
+</section>
+{% endif %}
 
-    // Chart functionality for average performance
-    const chartDiv = document.getElementById('portfolioAverageChart');
-    if (chartDiv && chartDiv.offsetParent) {
-        let currentTimeFrame = '1d';
-        
-        function loadChart(timeFrame = 'all') {
-            currentTimeFrame = timeFrame;
-            
-            // Update button states
-            document.querySelectorAll('.timeframe-btn').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.timeframe === timeFrame) {
-                    btn.classList.add('active');
-                }
-            });
-            
-            const url = '{{ url_for("main.get_portfolio_average_chart_data") }}' + '?time_frame=' + timeFrame;
-            
-            fetch(url)
-                .then(response => {
-                    if (!response.ok) throw new Error('Failed to fetch chart data');
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.error) {
-                        console.error('Error:', data.error);
-                        return;
-                    }
-                    
-                    renderChart(data);
-                })
-                .catch(error => console.error('Chart Error:', error));
-        }
-        
-        function renderChart(data) {
-            const traces = [];
-            
-            // Portfolio Average trace
-            if (data.portfolio_avg && data.portfolio_avg.length > 0) {
-                const dates = data.portfolio_avg.map(d => d.date);
-                const returns = data.portfolio_avg.map(d => d.return_pct);
-                
-                traces.push({
-                    x: dates,
-                    y: returns,
-                    name: 'Portfolio Avg',
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: {
-                        color: '#3498db',
-                        width: 3
-                    }
-                });
-            }
-            
-            // S&P 500 trace
-            if (data.sp500 && data.sp500.length > 0) {
-                const dates = data.sp500.map(d => d.date);
-                const returns = data.sp500.map(d => d.return_pct);
-                
-                traces.push({
-                    x: dates,
-                    y: returns,
-                    name: 'S&P 500',
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: {
-                        color: '#95a5a6',
-                        width: 2,
-                        dash: 'dash'
-                    }
-                });
-            }
-            
-            const layout = {
-                title: '',
-                xaxis: {
-                    title: 'Date'
-                },
-                yaxis: {
-                    title: 'Return (%)'
-                },
-                hovermode: 'x unified',
-                margin: { t: 20, b: 40, l: 60, r: 20 },
-                plot_bgcolor: '#f9f9f9',
-                paper_bgcolor: 'white'
-            };
-            
-            Plotly.newPlot(chartDiv, traces, layout, { responsive: true });
-        }
-        
-        // Add event listeners to time frame buttons
-        document.querySelectorAll('.timeframe-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                loadChart(this.dataset.timeframe);
-            });
-        });
-        
-        // Load initial chart
-        loadChart('all');
-    }
-});
-</script>
+{% if not portfolio_cards and not watchlist_cards %}
+<div class="empty-state">
+    <h3>Nothing tracked yet</h3>
+    <p>Create a portfolio or watchlist to get started.</p>
+    <a href="{{ url_for('main.manage') }}" class="btn btn-primary">Get Started</a>
+</div>
+{% endif %}
+
+<style>
+.dashboard-cards { display: flex; flex-wrap: wrap; gap: 16px; }
+.dashboard-card-link { text-decoration: none; color: inherit; }
+.dashboard-card { background: white; border: 1px solid #ddd; border-radius: 10px;
+    padding: 20px 22px; min-width: 200px; max-width: 280px; flex: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07); transition: box-shadow .15s, transform .15s; }
+.dashboard-card-link:hover .dashboard-card { box-shadow: 0 6px 20px rgba(0,0,0,.12); transform: translateY(-2px); }
+.dashboard-card-new { display: flex; align-items: center; justify-content: center;
+    border: 2px dashed #ccc; background: #fafafa; color: #888; font-size: 15px;
+    min-height: 100px; }
+.dashboard-card-name { font-size: 17px; font-weight: 700; color: #2c3e50; margin-bottom: 4px; }
+.dashboard-card-sub { font-size: 12px; color: #999; margin-bottom: 10px; }
+.dashboard-card-value { font-size: 22px; font-weight: 700; color: #2196F3; margin-bottom: 6px; }
+.dashboard-card-gain { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.dashboard-card-gain.positive { color: #27ae60; }
+.dashboard-card-gain.negative { color: #e74c3c; }
+.dashboard-card-realized { font-size: 13px; color: #888; }
+</style>
 {% endblock %}
