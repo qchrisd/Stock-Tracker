@@ -166,12 +166,17 @@
                                 </td>
                                 <td colspan="3"></td>
                                 <td class="action-cell">
-                                    <form method="GET" action="{{ url_for('main.edit_transaction', portfolio_id=portfolio_id, txn_id=txn.id) }}" style="display: inline;">
-                                        <button type="submit" class="btn btn-small btn-secondary">Edit</button>
-                                    </form>
-                                    <form method="POST" action="{{ url_for('main.delete_transaction', portfolio_id=portfolio_id, txn_id=txn.id) }}" onsubmit="return confirm('Delete this {{ txn.type }} transaction?');" style="display: inline;">
-                                        <button type="submit" class="btn btn-small btn-danger">Delete</button>
-                                    </form>
+                                    <div class="action-dropdown">
+                                        <button type="button" class="btn btn-small btn-secondary txn-action-toggle" data-txn-id="{{ txn.id }}">Actions</button>
+                                        <div class="action-menu" id="txn-actions-{{ txn.id }}" style="display: none;">
+                                            <form method="GET" action="{{ url_for('main.edit_transaction', portfolio_id=portfolio_id, txn_id=txn.id) }}">
+                                                <button type="submit" class="btn btn-small btn-secondary btn-block">Edit</button>
+                                            </form>
+                                            <form method="POST" action="{{ url_for('main.delete_transaction', portfolio_id=portfolio_id, txn_id=txn.id) }}" onsubmit="return confirm('Delete this {{ txn.type }} transaction?');">
+                                                <button type="submit" class="btn btn-small btn-danger btn-block">Delete</button>
+                                            </form>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         {% endfor %}
@@ -258,16 +263,19 @@
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const actionToggles = document.querySelectorAll('.action-toggle');
-    actionToggles.forEach(toggle => {
-        toggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const stockId = this.getAttribute('data-stock-id');
-            const menu = document.getElementById('actions-' + stockId);
-            document.querySelectorAll('.action-menu').forEach(m => { if (m.id !== 'actions-' + stockId) m.style.display = 'none'; });
-            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    function setupActionToggle(selector, idAttr, menuPrefix) {
+        document.querySelectorAll(selector).forEach(toggle => {
+            toggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = this.getAttribute(idAttr);
+                const menu = document.getElementById(menuPrefix + id);
+                document.querySelectorAll('.action-menu').forEach(m => { if (m !== menu) m.style.display = 'none'; });
+                menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+            });
         });
-    });
+    }
+    setupActionToggle('.action-toggle',     'data-stock-id', 'actions-');
+    setupActionToggle('.txn-action-toggle', 'data-txn-id',   'txn-actions-');
     document.addEventListener('click', function() {
         document.querySelectorAll('.action-menu').forEach(m => { m.style.display = 'none'; });
     });
