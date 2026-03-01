@@ -633,13 +633,23 @@ function _applyCacheState(data) {
         cacheStatus.style.color = '#27ae60';
         cancelBtn.style.display = 'none';
         // Auto-hide after 5 s
-        setTimeout(() => { progressContainer.style.display = 'none'; }, 5000);
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            loadSchedulerSettings();
+        }, 5000);
 
     } else if (status === 'cancelled') {
         progressStatus.textContent = '⚠️ Cancelled';
         progressDetails.textContent = data.message || '';
+        if (data.successful > 0) {
+            cacheStatus.textContent = `${data.successful} stocks cached`;
+            cacheStatus.style.color = '#e67e22';
+        }
         cancelBtn.style.display = 'none';
-        setTimeout(() => { progressContainer.style.display = 'none'; }, 4000);
+        setTimeout(() => {
+            progressContainer.style.display = 'none';
+            loadSchedulerSettings();
+        }, 4000);
 
     } else if (status === 'error') {
         progressStatus.textContent = '✗ Error occurred';

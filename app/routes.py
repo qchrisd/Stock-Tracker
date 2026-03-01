@@ -174,8 +174,13 @@ def _fetch_and_store_all_stocks(app):
                         cache_session.commit()
                         batch = []
                     _update_job_state(running=False, status='cancelled',
+                                      successful=successful,
                                       message=f'Cancelled after {i-1} stocks. {successful} cached.',
                                       processed=i-1, percent=int(((i-1)/total)*100))
+                    sch = cache_session.query(CacheScheduler).first()
+                    if sch:
+                        sch.last_run = datetime.utcnow()
+                        cache_session.commit()
                     return successful
 
                 try:
@@ -230,6 +235,10 @@ def _fetch_and_store_all_stocks(app):
             _update_job_state(running=False, status='complete', processed=total,
                               successful=successful, percent=100,
                               message=f'Successfully cached {successful:,} stocks')
+            sch = cache_session.query(CacheScheduler).first()
+            if sch:
+                sch.last_run = datetime.utcnow()
+                cache_session.commit()
             print(f"[cache-job] Completed: {successful}/{total}")
             return successful
         except Exception as e:
