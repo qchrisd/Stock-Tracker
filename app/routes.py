@@ -254,6 +254,21 @@ def _compute_next_utc_run(day_of_week_et, hour_et, minute_et):
     return candidate_et.astimezone(_UTC_TZ)
 
 
+def _run_scheduled_cache_job(app):
+    """Called in its own daemon thread when the scheduler fires."""
+    successful = _fetch_and_store_all_stocks(app)
+    with app.app_context():
+        cs = db_manager.get_cache_session()
+        try:
+            sch = cs.query(CacheScheduler).first()
+            if sch:
+                sch.last_run = datetime.utcnow()
+                cs.commit()
+        finally:
+            cs.remove()
+    print(f"[cache-scheduler] Scheduled job done. {successful} cached.")
+
+
 def _scheduler_loop(app):
     print("[cache-scheduler] Background scheduler thread started")
     while True:
@@ -262,30 +277,25 @@ def _scheduler_loop(app):
                 cache_session = db_manager.get_cache_session()
                 try:
                     scheduler = cache_session.query(CacheScheduler).first()
-                    if scheduler and scheduler.enabled:
-                        next_run = _compute_next_utc_run(
-                            scheduler.day_of_week, scheduler.hour, scheduler.minute
-                        )
-                        if scheduler.next_run is None or abs(
-                            (next_run.replace(tzinfo=None) - scheduler.next_run).total_seconds()
-                        ) > 60:
-                            scheduler.next_run = next_run.replace(tzinfo=None)
+                    if scheduler and scheduler.enabled and scheduler.next_run:
+                        now_utc = datetime.utcnow()
+                        overdue = (now_utc - scheduler.next_run).total_seconds()
+                        # Fire if we're 0–119 s past next_run and no job is already running.
+                        # The 0–119 s window accommodates the 60 s sleep granularity plus
+                        # any thread-scheduling jitter without allowing double-firing.
+                        if 0 <= overdue < 120 and not _cache_job_state.get('running'):
+                            print(f"[cache-scheduler] Firing at {now_utc} UTC "
+                                  f"(overdue {overdue:.0f}s)")
+                            # Advance next_run immediately so a second loop tick can't
+                            # fire the same slot again before the job finishes.
+                            scheduler.next_run = _compute_next_utc_run(
+                                scheduler.day_of_week, scheduler.hour, scheduler.minute
+                            ).replace(tzinfo=None)
                             cache_session.commit()
-
-                        now_utc = datetime.now(_UTC_TZ).replace(tzinfo=None)
-                        if scheduler.next_run and abs((scheduler.next_run - now_utc).total_seconds()) < 60:
-                            print(f"[cache-scheduler] Firing at {now_utc} UTC")
-                            successful = _fetch_and_store_all_stocks(app)
-                            with app.app_context():
-                                cs2 = db_manager.get_cache_session()
-                                sch = cs2.query(CacheScheduler).first()
-                                if sch:
-                                    sch.last_run = datetime.utcnow()
-                                    sch.next_run = _compute_next_utc_run(
-                                        sch.day_of_week, sch.hour, sch.minute
-                                    ).replace(tzinfo=None)
-                                    cs2.commit()
-                            print(f"[cache-scheduler] Done. {successful} cached.")
+                            job = threading.Thread(
+                                target=_run_scheduled_cache_job, args=(app,), daemon=True
+                            )
+                            job.start()
                 finally:
                     cache_session.remove()
         except Exception as e:

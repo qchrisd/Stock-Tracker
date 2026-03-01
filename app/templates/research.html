@@ -714,6 +714,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(() => {});
+
+    // Passive background check every 30 s so the page picks up scheduler-triggered
+    // jobs even when the user has had the page open for a while without clicking anything.
+    setInterval(function() {
+        if (_cacheStatusPoller) return; // already polling — nothing to do
+        fetch('/api/cache-status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.running) {
+                    _applyCacheState(data);
+                    _startPolling();
+                }
+            })
+            .catch(() => {});
+    }, 30000);
 });
 
 function resetFilters() {
