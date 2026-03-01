@@ -1,121 +1,50 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Tracker - Account Settings{% endblock %}
-
 {% block content %}
 <div class="portfolio-header">
-    <h2>Account Settings</h2>
-    <p class="subtitle">Configure your starting account balance</p>
+    <h2>Account Settings – {{ meta.name }}</h2>
+    <p class="subtitle">Configure the starting account balance for this portfolio</p>
 </div>
 
 <div class="form-container" style="max-width: 600px; margin: 30px auto;">
-    <form method="POST" class="stock-form">
+    <form method="POST" action="{{ url_for('main.account_settings', portfolio_id=portfolio_id) }}" class="stock-form">
         <fieldset>
             <legend>Account Configuration</legend>
-            
             <div class="form-group">
                 <label for="initial_value">Starting Account Value ($) *</label>
-                <input type="number" id="initial_value" name="initial_value" step="0.01" min="0" 
-                    value="{{ account.initial_value if account else '' }}" required>
+                <input type="number" id="initial_value" name="initial_value" step="0.01" min="0"
+                    value="{{ account.initial_value if account else '' }}" required class="form-input">
                 <small>The initial balance of your trading account</small>
             </div>
-            
             <div class="form-group">
                 <label for="start_date">Account Start Date *</label>
-                <input type="date" id="start_date" name="start_date" 
-                    value="{{ start_date_str }}" required>
+                <input type="date" id="start_date" name="start_date" value="{{ start_date_str }}" required class="form-input">
                 <small>The date you started this trading account</small>
             </div>
-            
             {% if account %}
-                <div class="form-group" style="background-color: #f0f0f0; padding: 15px; border-radius: 4px; margin: 20px 0;">
-                    <h4 style="margin-top: 0;">Current Account Settings</h4>
-                    <p><strong>Current Balance:</strong> ${{ "%.2f"|format(account.initial_value) }}</p>
-                    <p><strong>Start Date:</strong> {{ account.start_date.strftime('%Y-%m-%d') }}</p>
-                    <p><strong>Last Updated:</strong> {{ account.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                </div>
+            <div class="form-group" style="background:#f0f0f0; padding:15px; border-radius:4px;">
+                <h4 style="margin-top:0;">Current Settings</h4>
+                <p><strong>Balance:</strong> ${{ "%.2f"|format(account.initial_value) }}</p>
+                <p><strong>Start Date:</strong> {{ account.start_date.strftime('%Y-%m-%d') }}</p>
+                <p><strong>Last Updated:</strong> {{ account.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
             {% endif %}
-            
-            <div class="form-group">
-                <button type="submit" class="btn btn-primary">Save Account Settings</button>
-                <a href="{{ url_for('main.portfolio') }}" class="btn btn-secondary">Cancel</a>
+            <div class="form-group" style="display:flex; gap:10px;">
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <a href="{{ url_for('main.portfolio_view', portfolio_id=portfolio_id) }}" class="btn btn-secondary">Cancel</a>
             </div>
         </fieldset>
     </form>
 </div>
 
-<div style="max-width: 600px; margin: 30px auto; background: #e8f4f8; padding: 20px; border-radius: 8px;">
-    <h3 style="margin-top: 0;">How Account Tracking Works</h3>
-    <ul style="line-height: 1.8;">
-        <li><strong>Starting Balance:</strong> Set the initial amount you deposited into your trading account</li>
-        <li><strong>Investment Value:</strong> Tracks total amount invested in stocks (purchases)</li>
-        <li><strong>Current Value:</strong> Current market value of all your holdings</li>
-        <li><strong>Realized Gains/Losses:</strong> Profit/loss from completed sales</li>
-        <li><strong>Dividends:</strong> Income received from stocks</li>
-        <li><strong>Account Performance:</strong> Overall return including gains, losses, and dividends</li>
-    </ul>
-</div>
-
 <style>
-.form-container {
-    margin-top: 30px;
-}
-
-.stock-form {
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.form-group {
-    margin-bottom: 20px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 600;
-    color: #333;
-}
-
-.form-group input {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
-}
-
-.form-group input:focus {
-    outline: none;
-    border-color: #3498db;
-    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
-}
-
-.form-group small {
-    display: block;
-    margin-top: 6px;
-    color: #666;
-    font-size: 12px;
-}
-
-.form-group button,
-.form-group a {
-    margin-right: 10px;
-}
-
-fieldset {
-    border: none;
-    padding: 0;
-}
-
-legend {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 20px;
-    color: #333;
-}
+.stock-form { background:white; border:1px solid #ddd; border-radius:8px; padding:24px; box-shadow:0 2px 4px rgba(0,0,0,.1); }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; margin-bottom:6px; font-weight:600; color:#333; }
+.form-input { width:100%; padding:9px 11px; border:1px solid #ddd; border-radius:4px; font-size:14px; box-sizing:border-box; }
+.form-input:focus { outline:none; border-color:#3498db; box-shadow:0 0 0 3px rgba(52,152,219,.1); }
+.form-group small { display:block; margin-top:5px; color:#888; font-size:12px; }
+fieldset { border:none; padding:0; }
+legend { font-size:16px; font-weight:600; margin-bottom:18px; color:#333; }
 </style>
 {% endblock %}

@@ -5,10 +5,8 @@ from datetime import timedelta
 class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
-    # Use absolute path to database
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///' + os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'stock_tracker.db'
-    )
+    # Registry DB lives in the instance/ folder (overridden at create_app time)
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///stock_tracker.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     PERMANENT_SESSION_LIFETIME = timedelta(days=7)
 

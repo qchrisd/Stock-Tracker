@@ -1,124 +1,40 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Tracker - Record Sale{% endblock %}
-
 {% block content %}
 <div class="portfolio-header">
-    <h2>Record Sale - {{ symbol }}</h2>
+    <h2>Record Sale – {{ symbol }}</h2>
     <p class="subtitle">Current holdings: {{ "%.4f"|format(current_shares) }} shares</p>
 </div>
 
-<div class="form-container">
-    <form method="POST" class="stock-form">
+<div class="form-container" style="max-width:500px; margin:30px auto;">
+    <form method="POST" action="{{ url_for('main.record_sale', portfolio_id=portfolio_id, symbol=symbol) }}" class="stock-form">
         <fieldset>
             <legend>Sale Details</legend>
-            
             <div class="form-group">
                 <label for="date">Sale Date *</label>
-                <input type="date" id="date" name="date" required onchange="updateSalePrice()">
-                <small>The date you sold these shares (price will be automatically fetched)</small>
+                <input type="date" id="date" name="date" required class="form-input">
+                <small>Price will be fetched automatically from market data</small>
             </div>
-            
             <div class="form-group">
-                <label for="shares">Number of Shares to Sell *</label>
-                <input type="number" id="shares" name="shares" step="0.0001" min="0" placeholder="e.g., 10.5" required>
+                <label for="shares">Shares to Sell *</label>
+                <input type="number" id="shares" name="shares" step="0.0001" min="0" required placeholder="e.g. 10.5" class="form-input">
                 <small>Maximum: {{ "%.4f"|format(current_shares) }} shares</small>
             </div>
-            
-            <div class="form-group">
-                <label for="price_display">Sale Price per Share ($)</label>
-                <input type="text" id="price_display" readonly placeholder="Enter sale date to fetch price" style="background-color: #f5f5f5; cursor: not-allowed;">
-                <small>Automatically fetched from market data</small>
-            </div>
-            
-            <div class="form-group">
+            <div class="form-group" style="display:flex; gap:10px;">
                 <button type="submit" class="btn btn-primary">Record Sale</button>
-                <a href="{{ url_for('main.portfolio') }}" class="btn btn-secondary">Cancel</a>
+                <a href="{{ url_for('main.portfolio_view', portfolio_id=portfolio_id) }}" class="btn btn-secondary">Cancel</a>
             </div>
         </fieldset>
     </form>
 </div>
 
-<script>
-function updateSalePrice() {
-    const dateInput = document.getElementById('date').value;
-    const symbol = '{{ symbol }}';
-    
-    if (!dateInput) {
-        document.getElementById('price_display').placeholder = 'Enter sale date to fetch price';
-        document.getElementById('price_display').value = '';
-        return;
-    }
-    
-    // Show loading state
-    document.getElementById('price_display').value = 'Fetching...';
-    document.getElementById('price_display').disabled = true;
-    
-    // Note: The actual price fetching happens on the server when the form is submitted
-    // This is just a placeholder update to show the form is working
-    document.getElementById('price_display').value = 'Will be fetched on submit';
-    document.getElementById('price_display').disabled = true;
-}
-</script>
-
 <style>
-.form-container {
-    max-width: 500px;
-    margin: 30px auto;
-    padding: 20px;
-}
-
-.stock-form {
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.form-group {
-    margin-bottom: 20px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 600;
-    color: #333;
-}
-
-.form-group input {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-.form-group input:focus {
-    outline: none;
-    border-color: #3498db;
-    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
-}
-
-.form-group small {
-    display: block;
-    margin-top: 5px;
-    color: #666;
-    font-size: 12px;
-}
-
-fieldset {
-    border: none;
-    padding: 0;
-}
-
-legend {
-    font-size: 18px;
-    font-weight: 600;
-    margin-bottom: 20px;
-    color: #333;
-}
+.stock-form { background:white; border:1px solid #ddd; border-radius:8px; padding:24px; box-shadow:0 2px 4px rgba(0,0,0,.1); }
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; margin-bottom:6px; font-weight:600; color:#333; font-size:14px; }
+.form-input { width:100%; padding:9px 11px; border:1px solid #ddd; border-radius:4px; font-size:14px; box-sizing:border-box; }
+.form-group small { display:block; margin-top:5px; color:#888; font-size:12px; }
+fieldset { border:none; padding:0; }
+legend { font-size:16px; font-weight:600; margin-bottom:18px; color:#333; }
 </style>
 {% endblock %}

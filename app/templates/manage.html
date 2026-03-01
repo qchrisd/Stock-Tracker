@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Stock Tracker - Manage{% endblock %}
+{% block content %}
+<div class="portfolio-header">
+    <h2>Manage Portfolios &amp; Watchlists</h2>
+    <p class="subtitle">Create, rename, or remove your portfolios and watchlists</p>
+</div>
+
+<!-- Portfolios Section -->
+<section style="margin-bottom: 50px;">
+    <h3 style="margin-bottom: 16px;">Portfolios</h3>
+    <div class="manage-cards">
+        {% for item in portfolio_summaries %}
+        <div class="manage-card">
+            <div class="manage-card-header">
+                <h4><a href="{{ url_for('main.portfolio_view', portfolio_id=item.meta.id) }}">{{ item.meta.name }}</a></h4>
+                <span class="manage-card-stats">{{ item.stock_count }} stock{{ 's' if item.stock_count != 1 else '' }} &bull; {{ item.txn_count }} transaction{{ 's' if item.txn_count != 1 else '' }}</span>
+            </div>
+            {% if item.meta.description %}
+                <p class="manage-card-desc">{{ item.meta.description }}</p>
+            {% endif %}
+            <div class="manage-card-actions">
+                <a href="{{ url_for('main.portfolio_view', portfolio_id=item.meta.id) }}" class="btn btn-small btn-primary">View</a>
+                <a href="{{ url_for('main.add_to_portfolio', portfolio_id=item.meta.id) }}" class="btn btn-small btn-secondary">+ Add Stock</a>
+                <button class="btn btn-small btn-secondary" onclick="showRenameForm('portfolio', {{ item.meta.id }}, '{{ item.meta.name }}', '{{ item.meta.description or '' }}')">Rename</button>
+                <form method="POST" action="{{ url_for('main.delete_portfolio_entry', portfolio_id=item.meta.id) }}" style="display:inline;"
+                      onsubmit="return confirm('Remove portfolio \'{{ item.meta.name }}\'?');">
+                    <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Create new portfolio -->
+    <div class="manage-new-form" id="new-portfolio-form">
+        <h4>New Portfolio</h4>
+        <form method="POST" action="{{ url_for('main.create_portfolio') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+                <label>Name *</label>
+                <input type="text" name="name" required placeholder="e.g. Growth Portfolio" class="form-input">
+            </div>
+            <div class="form-group" style="margin:0; flex:2; min-width:180px;">
+                <label>Description</label>
+                <input type="text" name="description" placeholder="Optional description" class="form-input">
+            </div>
+            <button type="submit" class="btn btn-primary">Create Portfolio</button>
+        </form>
+    </div>
+</section>
+
+<!-- Watchlists Section -->
+<section>
+    <h3 style="margin-bottom: 16px;">Watchlists</h3>
+    <div class="manage-cards">
+        {% for item in watchlist_summaries %}
+        <div class="manage-card">
+            <div class="manage-card-header">
+                <h4><a href="{{ url_for('main.watchlist_view', watchlist_id=item.meta.id) }}">{{ item.meta.name }}</a></h4>
+                <span class="manage-card-stats">{{ item.stock_count }} stock{{ 's' if item.stock_count != 1 else '' }}</span>
+            </div>
+            {% if item.meta.description %}
+                <p class="manage-card-desc">{{ item.meta.description }}</p>
+            {% endif %}
+            <div class="manage-card-actions">
+                <a href="{{ url_for('main.watchlist_view', watchlist_id=item.meta.id) }}" class="btn btn-small btn-primary">View</a>
+                <a href="{{ url_for('main.add_to_watchlist', watchlist_id=item.meta.id) }}" class="btn btn-small btn-secondary">+ Add Stock</a>
+                <button class="btn btn-small btn-secondary" onclick="showRenameForm('watchlist', {{ item.meta.id }}, '{{ item.meta.name }}', '{{ item.meta.description or '' }}')">Rename</button>
+                <form method="POST" action="{{ url_for('main.delete_watchlist_entry', watchlist_id=item.meta.id) }}" style="display:inline;"
+                      onsubmit="return confirm('Remove watchlist \'{{ item.meta.name }}\'?');">
+                    <button type="submit" class="btn btn-small btn-danger">Remove</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Create new watchlist -->
+    <div class="manage-new-form">
+        <h4>New Watchlist</h4>
+        <form method="POST" action="{{ url_for('main.create_watchlist_entry') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+                <label>Name *</label>
+                <input type="text" name="name" required placeholder="e.g. Tech Stocks" class="form-input">
+            </div>
+            <div class="form-group" style="margin:0; flex:2; min-width:180px;">
+                <label>Description</label>
+                <input type="text" name="description" placeholder="Optional description" class="form-input">
+            </div>
+            <button type="submit" class="btn btn-primary">Create Watchlist</button>
+        </form>
+    </div>
+</section>
+
+<!-- Rename modal -->
+<div id="rename-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:2000; align-items:center; justify-content:center;">
+    <div style="background:white; padding:28px; border-radius:10px; min-width:340px; box-shadow:0 8px 32px rgba(0,0,0,.2);">
+        <h3 id="rename-title" style="margin-top:0;">Rename</h3>
+        <form id="rename-form" method="POST">
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="rename-name" name="name" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="rename-desc" name="description" class="form-input">
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('rename-modal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.manage-cards { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 24px; }
+.manage-card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 18px 20px;
+    min-width: 240px; max-width: 360px; flex: 1; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+.manage-card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.manage-card-header h4 { margin: 0; font-size: 16px; }
+.manage-card-header h4 a { color: #2c3e50; text-decoration: none; }
+.manage-card-header h4 a:hover { color: #3498db; }
+.manage-card-stats { font-size: 12px; color: #888; white-space: nowrap; }
+.manage-card-desc { color: #666; font-size: 13px; margin: 4px 0 12px; }
+.manage-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.manage-new-form { background: #f5f7fa; border: 1px dashed #ccc; border-radius: 8px; padding: 18px 20px; }
+.manage-new-form h4 { margin-top: 0; margin-bottom: 14px; color: #555; }
+.form-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #555; }
+.form-input { padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 100%; box-sizing: border-box; }
+</style>
+
+<script>
+function showRenameForm(type, id, currentName, currentDesc) {
+    const modal = document.getElementById('rename-modal');
+    const title = document.getElementById('rename-title');
+    const form  = document.getElementById('rename-form');
+    const nameInput = document.getElementById('rename-name');
+    const descInput = document.getElementById('rename-desc');
+    const baseUrl = type === 'portfolio'
+        ? '/portfolios/' + id + '/rename'
+        : '/watchlists/' + id + '/rename';
+    title.textContent = 'Rename ' + (type === 'portfolio' ? 'Portfolio' : 'Watchlist');
+    form.action = baseUrl;
+    nameInput.value = currentName;
+    descInput.value = currentDesc;
+    modal.style.display = 'flex';
+}
+document.getElementById('rename-modal').addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+});
+</script>
+{% endblock %}

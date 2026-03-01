@@ -1,90 +1,54 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Tracker - Add Stock{% endblock %}
-
 {% block content %}
-<div class="form-header">
-    <h2>Add a New Stock</h2>
-    <p class="subtitle">Track the value change of your stock holdings from a specific date to today</p>
+<div class="portfolio-header">
+    <h2>Add Stock to {{ meta.name }}</h2>
+    <p class="subtitle">Search for a stock symbol and set the acquisition date</p>
 </div>
 
-<div class="form-container">
-    <form method="POST" class="add-stock-form">
-        <div class="form-group">
-            <label for="list_type">Add to:</label>
-            <select id="list_type" name="list_type" class="form-input" required>
-                <option value="portfolio" {% if list_type == 'portfolio' %}selected{% endif %}>Portfolio</option>
-                <option value="watchlist" {% if list_type == 'watchlist' %}selected{% endif %}>Watchlist</option>
-            </select>
-            <small>Choose whether this is a stock you own (Portfolio) or just monitoring (Watchlist)</small>
-        </div>
-
-        <div class="form-group">
-            <label for="symbol">Stock Symbol:</label>
-            <input 
-                type="text" 
-                id="symbol" 
-                name="symbol" 
-                placeholder="e.g., AAPL, GOOGL, MSFT" 
-                required 
-                maxlength="10"
-                class="form-input"
-            >
-            <small>Enter the ticker symbol (case-insensitive)</small>
-        </div>
-
-        <div class="form-group">
-            <label for="shares">Number of Shares:</label>
-            <input 
-                type="number" 
-                id="shares" 
-                name="shares" 
-                placeholder="e.g., 10, 100.5" 
-                step="0.01"
-                min="0.01"
-                required 
-                class="form-input"
-            >
-            <small>Enter the number of shares you own (supports decimals)</small>
-        </div>
-
-        <div class="form-group">
-            <label for="date">Start Date:</label>
-            <input 
-                type="date" 
-                id="date" 
-                name="date" 
-                required 
-                class="form-input"
-            >
-            <small>The date you want to track the stock value from</small>
-        </div>
-
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-large">Add Stock</button>
-            <a href="{% if list_type == 'watchlist' %}{{ url_for('main.watchlist') }}{% else %}{{ url_for('main.portfolio') }}{% endif %}" class="btn btn-secondary btn-large">Cancel</a>
-        </div>
+<div class="form-container" style="max-width: 520px; margin: 30px auto;">
+    {% if context_type == 'portfolio' %}
+    <form method="POST" action="{{ url_for('main.add_to_portfolio', portfolio_id=portfolio_id) }}" class="stock-form">
+    {% else %}
+    <form method="POST" action="{{ url_for('main.add_to_watchlist', watchlist_id=watchlist_id) }}" class="stock-form">
+    {% endif %}
+        <fieldset>
+            <legend>Stock Details</legend>
+            <div class="form-group">
+                <label for="symbol">Stock Symbol *</label>
+                <input type="text" id="symbol" name="symbol" required placeholder="e.g. AAPL" class="form-input" style="text-transform:uppercase;">
+                <small>Enter the ticker symbol for the stock</small>
+            </div>
+            <div class="form-group">
+                <label for="date">Date Acquired *</label>
+                <input type="date" id="date" name="date" required class="form-input">
+                <small>The date you acquired this stock (price will be fetched automatically)</small>
+            </div>
+            <div class="form-group">
+                <label for="shares">Number of Shares *</label>
+                <input type="number" id="shares" name="shares" step="0.0001" min="0.0001" required placeholder="e.g. 10" class="form-input">
+                <small>How many shares did you acquire?</small>
+            </div>
+            <div class="form-group" style="display:flex; gap:10px;">
+                <button type="submit" class="btn btn-primary">Add Stock</button>
+                {% if context_type == 'portfolio' %}
+                <a href="{{ url_for('main.portfolio_view', portfolio_id=portfolio_id) }}" class="btn btn-secondary">Cancel</a>
+                {% else %}
+                <a href="{{ url_for('main.watchlist_view', watchlist_id=watchlist_id) }}" class="btn btn-secondary">Cancel</a>
+                {% endif %}
+            </div>
+        </fieldset>
     </form>
-
-    <div class="info-box">
-        <h3>How it works:</h3>
-        <ul>
-            <li>Enter a valid stock symbol (e.g., AAPL for Apple)</li>
-            <li>Specify the number of shares you own</li>
-            <li>Choose the date you want to start tracking from</li>
-            <li>The app will fetch the stock price on that date</li>
-            <li>You'll see the total market value change (shares × price) up to today</li>
-        </ul>
-        <h3 style="margin-top: 20px;">Example:</h3>
-        <ul>
-            <li>100 shares of AAPL on 2025-01-01</li>
-            <li>Price on 2025-01-01: $150</li>
-            <li>Initial Value: 100 × $150 = $15,000</li>
-            <li>Current Price: $160</li>
-            <li>Current Value: 100 × $160 = $16,000</li>
-            <li>Gain: $1,000 (6.67%)</li>
-        </ul>
-    </div>
 </div>
-{% endblock %}
 
+<style>
+.stock-form { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 24px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; margin-bottom: 6px; font-weight: 600; color: #333; font-size: 14px; }
+.form-input { width: 100%; padding: 9px 11px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+.form-input:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52,152,219,.1); }
+.form-group small { display: block; margin-top: 5px; color: #888; font-size: 12px; }
+fieldset { border: none; padding: 0; }
+legend { font-size: 16px; font-weight: 600; margin-bottom: 18px; color: #333; }
+</style>
+{% endblock %}
