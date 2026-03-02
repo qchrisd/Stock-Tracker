@@ -42,6 +42,7 @@ class DatabaseManager:
         self._open(cache_path, 'cache')
         from app.cache_models import CacheBase
         CacheBase.metadata.create_all(self._engines['cache'])
+        self._migrate_cache_db(cache_path)
 
         # Tear down all scoped sessions at the end of every app-context
         @app.teardown_appcontext
@@ -50,6 +51,33 @@ class DatabaseManager:
                 factory.remove()
 
     # ── Low-level helpers ─────────────────────────────────────────────────────
+
+    def _migrate_cache_db(self, cache_path: str):
+        """Add any columns present in the model but missing from the live DB.
+
+        SQLAlchemy's create_all() won't ALTER existing tables, so we do it
+        manually here on every startup (safe to run repeatedly — skips cols
+        that already exist).
+        """
+        import sqlite3 as _sqlite3
+        from app.cache_models import StockCache
+        con = _sqlite3.connect(cache_path)
+        try:
+            cur = con.cursor()
+            cur.execute("PRAGMA table_info(stock_cache)")
+            existing = {r[1] for r in cur.fetchall()}
+            type_map = {
+                'INTEGER': 'INTEGER', 'FLOAT': 'REAL', 'BOOLEAN': 'INTEGER',
+                'VARCHAR': 'TEXT', 'DATETIME': 'TEXT', 'STRING': 'TEXT',
+            }
+            for col in StockCache.__table__.columns:
+                if col.name not in existing:
+                    sql_type = type_map.get(col.type.__class__.__name__.upper(), 'TEXT')
+                    cur.execute(f"ALTER TABLE stock_cache ADD COLUMN {col.name} {sql_type}")
+                    print(f"[db-migrate] Added column stock_cache.{col.name} ({sql_type})")
+            con.commit()
+        finally:
+            con.close()
 
     def _open(self, db_path: str, key: str):
         """Open an engine + scoped session for *db_path* and store under *key*."""
