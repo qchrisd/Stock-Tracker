@@ -3,13 +3,30 @@
 {% block title %}Stock Tracker - Research{% endblock %}
 
 {% block content %}
+<style>
+.scheduler-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+}
+@media (max-width: 600px) {
+    .scheduler-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+@media (max-width: 380px) {
+    .scheduler-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 <div class="portfolio-header">
     <h2>Research & Stock Suggestions</h2>
     <p class="subtitle">Find promising investment opportunities</p>
 </div>
 
 <!-- Cache Status and Download Button -->
-<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
     <div>
         <strong>Data Cache Status:</strong>
         <span id="cache-status" style="color: #27ae60; font-weight: bold;">{{ cache_status if cache_status else 'No cached data' }}</span>
@@ -52,7 +69,7 @@
     
     <div id="scheduler-settings" style="display: none;">
         <div style="margin-bottom: 15px; padding: 10px; background-color: white; border-radius: 4px;">
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div class="scheduler-grid" style="margin-bottom: 10px;">
                 <!-- Enable/Disable Toggle -->
                 <div>
                     <label style="display: flex; align-items: center; cursor: pointer;">

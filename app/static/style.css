@@ -341,6 +341,7 @@ main {
 
 .range-inputs input {
     flex: 1;
+    min-width: 0;
 }
 
 .range-inputs span {
@@ -908,6 +909,10 @@ footer {
         margin-bottom: 20px;
     }
 
+    .research-criteria {
+        padding: 15px;
+    }
+
     .logo {
         font-size: 24px;
         margin-bottom: 0;
@@ -1001,6 +1006,17 @@ footer {
 @media (max-width: 480px) {
     .container {
         padding: 0 10px;
+    }
+
+    .research-criteria {
+        padding: 12px 10px;
+    }
+
+    .range-inputs {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 6px;
     }
 
     .logo {
