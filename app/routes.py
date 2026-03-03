@@ -850,6 +850,7 @@ def dashboard():
         total_realized = 0
         total_cost_basis = 0
         active_count = 0
+        stock_returns = []  # (symbol, pct_change) for active holdings
 
         for stock in stocks:
             current_shares = stock.get_current_shares_from_transactions(session)
@@ -857,10 +858,13 @@ def dashboard():
             total_cost_basis += stock.get_cost_basis_from_transactions(session)
             if current_shares > 0:
                 active_count += 1
-                total_current_cost += stock.get_current_cost_basis_from_transactions(session)
+                cost = stock.get_current_cost_basis_from_transactions(session)
+                total_current_cost += cost
                 cv = stock.get_current_value(session)
                 if cv is not None:
                     total_current_value += cv
+                    if cost > 0:
+                        stock_returns.append((stock.symbol, (cv - cost) / cost * 100))
 
         unrealized = (total_current_value - total_current_cost) if total_current_value > 0 else None
 
@@ -875,6 +879,10 @@ def dashboard():
                     if total_return_pct is not None and sp500_return_pct is not None
                     else None)
 
+        stock_returns.sort(key=lambda x: x[1], reverse=True)
+        top_stock = stock_returns[0] if stock_returns else None
+        bottom_stock = stock_returns[-1] if len(stock_returns) > 1 else None
+
         portfolio_cards.append({
             'meta': p,
             'active_stocks': active_count,
@@ -887,6 +895,8 @@ def dashboard():
             'total_return_pct': total_return_pct,
             'sp500_return_pct': sp500_return_pct,
             'vs_sp500': vs_sp500,
+            'top_stock': top_stock,
+            'bottom_stock': bottom_stock,
         })
 
     watchlist_cards = []

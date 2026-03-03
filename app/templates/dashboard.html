@@ -52,6 +52,25 @@
                     {% endif %}
                 </div>
                 {% endif %}
+                {% if card.top_stock or card.bottom_stock %}
+                <div class="dashboard-card-divider-v"></div>
+                <div class="dashboard-card-performers">
+                    {% if card.top_stock %}
+                    <div class="dc-performer-best">
+                        <div class="dashboard-card-performer-label">▲ Best</div>
+                        <div class="dashboard-card-performer-symbol positive">{{ card.top_stock[0] }}</div>
+                        <div class="dashboard-card-performer-pct positive">+{{ "{:.1f}".format(card.top_stock[1]) }}%</div>
+                    </div>
+                    {% endif %}
+                    {% if card.bottom_stock %}
+                    <div class="dc-performer-worst">
+                        <div class="dashboard-card-performer-label">▼ Worst</div>
+                        <div class="dashboard-card-performer-symbol {% if card.bottom_stock[1] >= 0 %}positive{% else %}negative{% endif %}">{{ card.bottom_stock[0] }}</div>
+                        <div class="dashboard-card-performer-pct {% if card.bottom_stock[1] >= 0 %}positive{% else %}negative{% endif %}">{{ "+" if card.bottom_stock[1] >= 0 else "" }}{{ "{:.1f}".format(card.bottom_stock[1]) }}%</div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
         </div>
         </a>
@@ -87,15 +106,16 @@
 
 <style>
 .dashboard-cards { display: flex; flex-wrap: wrap; gap: 16px; }
-.dashboard-card-link { text-decoration: none; color: inherit; }
+.dashboard-card-link { text-decoration: none; color: inherit; display: block; }
 .dashboard-card { background: white; border: 1px solid #ddd; border-radius: 10px;
-    padding: 18px 22px; min-width: 320px; max-width: 520px; flex: 1;
-    box-shadow: 0 2px 8px rgba(0,0,0,.07); transition: box-shadow .15s, transform .15s; }
+    padding: 18px 22px; min-width: 0; width: 100%; max-width: 640px; flex: 1 1 340px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07); transition: box-shadow .15s, transform .15s;
+    box-sizing: border-box; }
 .dashboard-card-link:hover .dashboard-card { box-shadow: 0 6px 20px rgba(0,0,0,.12); transform: translateY(-2px); }
 .dashboard-card-name { font-size: 17px; font-weight: 700; color: #2c3e50; margin-bottom: 2px; }
 .dashboard-card-sub { font-size: 12px; color: #999; margin-bottom: 12px; }
 .dashboard-card-body { display: flex; align-items: stretch; gap: 0; }
-.dashboard-card-left { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.dashboard-card-left { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .dashboard-card-divider-v { width: 1px; background: #eee; margin: 0 18px; flex-shrink: 0; }
 .dashboard-card-right { display: flex; flex-direction: column; justify-content: center;
     align-items: flex-end; min-width: 110px; text-align: right; gap: 1px; }
@@ -115,5 +135,35 @@
 .dashboard-card-vs { font-size: 14px; font-weight: 700; line-height: 1.1; }
 .dashboard-card-vs.positive { color: #27ae60; }
 .dashboard-card-vs.negative { color: #e74c3c; }
+.dashboard-card-performers { display: flex; flex-direction: column; justify-content: center;
+    align-items: flex-end; min-width: 90px; text-align: right; }
+.dc-performer-worst { margin-top: 8px; }
+.dashboard-card-performer-label { font-size: 10px; color: #aaa; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.2; }
+.dashboard-card-performer-symbol { font-size: 14px; font-weight: 800; line-height: 1.2; }
+.dashboard-card-performer-pct { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.dashboard-card-performer-symbol.positive, .dashboard-card-performer-pct.positive { color: #27ae60; }
+.dashboard-card-performer-symbol.negative, .dashboard-card-performer-pct.negative { color: #e74c3c; }
+
+@media (max-width: 540px) {
+    .dashboard-cards { flex-direction: column; }
+    .dashboard-card { max-width: 100%; flex: none; }
+    /* Row 1: value/gains on left, returns on right */
+    .dashboard-card-body { flex-wrap: wrap; align-items: flex-start; }
+    .dashboard-card-divider-v { display: none; }
+    .dashboard-card-left { flex: 0 0 50%; box-sizing: border-box; padding-right: 12px;
+        border-right: 1px solid #eee; }
+    .dashboard-card-right { flex: 0 0 50%; box-sizing: border-box; padding-left: 12px;
+        align-items: flex-start; text-align: left; min-width: 0; gap: 1px; }
+    /* Row 2: best on left, worst on right */
+    .dashboard-card-performers { flex: 0 0 100%; flex-direction: row; align-items: flex-start;
+        justify-content: space-between; min-width: 0; text-align: left;
+        border-top: 1px solid #eee; margin-top: 10px; padding-top: 10px; }
+    .dc-performer-best { flex: 1; text-align: left; margin-top: 0; }
+    .dc-performer-worst { flex: 1; text-align: right; margin-top: 0; }
+    .dc-performer-worst .dashboard-card-performer-label,
+    .dc-performer-worst .dashboard-card-performer-symbol,
+    .dc-performer-worst .dashboard-card-performer-pct { display: block; }
+}
 </style>
 {% endblock %}
