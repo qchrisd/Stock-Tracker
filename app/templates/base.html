@@ -26,13 +26,28 @@
     .nav-dropdown-menu .divider { border-top: 1px solid #eee; margin: 4px 0; }
     .nav-dropdown-menu .menu-label { padding: 6px 16px 2px; font-size: 11px;
         font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    /* Mobile: click-based dropdowns */
+    @media (max-width: 768px) {
+        .nav-dropdown { display: block; width: 100%; }
+        .nav-dropdown-btn { width: 100%; text-align: left; display: flex; justify-content: space-between; }
+        .nav-dropdown-menu { position: static; box-shadow: none; border: none;
+            background: #f5f7fa; border-radius: 0; padding-left: 12px;
+            min-width: 0; width: 100%; }
+        .nav-dropdown:hover .nav-dropdown-menu { display: none; }
+        .nav-dropdown.dropdown-open .nav-dropdown-menu { display: block; }
+    }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1 class="logo">📈 Stock Tracker</h1>
-            <nav class="navbar">
+            <div class="header-top">
+                <h1 class="logo">📈 Stock Tracker</h1>
+                <button class="hamburger" id="hamburger-btn" aria-label="Toggle navigation" aria-expanded="false">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
+            <nav class="navbar" id="main-navbar">
                 <a href="{{ url_for('main.dashboard') }}" class="nav-link">Dashboard</a>
 
                 <!-- Portfolios dropdown -->
@@ -90,5 +105,36 @@
     </div>
     
     {% block scripts %}{% endblock %}
+    <script>
+        (function () {
+            var btn = document.getElementById('hamburger-btn');
+            var nav = document.getElementById('main-navbar');
+            btn.addEventListener('click', function () {
+                var open = nav.classList.toggle('nav-open');
+                btn.classList.toggle('is-open', open);
+                btn.setAttribute('aria-expanded', open);
+            });
+            // Close nav when a link (not a dropdown button) is clicked
+            nav.querySelectorAll('a.nav-link, .nav-dropdown-menu a').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    if (window.innerWidth <= 768) {
+                        nav.classList.remove('nav-open');
+                        btn.classList.remove('is-open');
+                        btn.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            });
+            // Mobile dropdown toggles (click instead of hover)
+            nav.querySelectorAll('.nav-dropdown-btn').forEach(function (dropBtn) {
+                dropBtn.addEventListener('click', function (e) {
+                    if (window.innerWidth <= 768) {
+                        e.stopPropagation();
+                        var dropdown = dropBtn.closest('.nav-dropdown');
+                        dropdown.classList.toggle('dropdown-open');
+                    }
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
