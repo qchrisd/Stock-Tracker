@@ -1664,8 +1664,10 @@ def research():
     distance_min = request.args.get('distance_min', 0, type=float)
     distance_max = request.args.get('distance_max', 100, type=float)
     forward_pe_max = request.args.get('forward_pe_max', 100, type=float)
-    rating_score_min = request.args.get('rating_score_min', 0, type=float)
-    rating_score_max = request.args.get('rating_score_max', 10, type=float)
+    defensive_score_min = request.args.get('defensive_score_min', 0, type=float)
+    defensive_score_max = request.args.get('defensive_score_max', 10, type=float)
+    enterprising_score_min = request.args.get('enterprising_score_min', 0, type=float)
+    enterprising_score_max = request.args.get('enterprising_score_max', 10, type=float)
 
     cs = db_manager.get_cache_session()
     try:
@@ -1723,8 +1725,10 @@ def research():
             for stock in cached_stocks:
                 fpe = stock.forward_pe or stock.trailing_pe or 0
                 if fpe == 0 or fpe > forward_pe_max: continue
-                if stock.rating_score is not None:
-                    if not (rating_score_min <= stock.rating_score <= rating_score_max): continue
+                if stock.defensive_score is not None:
+                    if not (defensive_score_min <= stock.defensive_score <= defensive_score_max): continue
+                if stock.enterprising_score is not None:
+                    if not (enterprising_score_min <= stock.enterprising_score <= enterprising_score_max): continue
                 suggestions.append({
                     'symbol': stock.symbol, 'name': stock.name,
                     'current_price': stock.current_price, 'week_52_low': stock.price_52w_low,
@@ -1756,8 +1760,9 @@ def research():
                            cache_status=cache_status, symbols=symbols_input,
                            market_cap_min=market_cap_min_m, market_cap_max=market_cap_max_m,
                            distance_min=distance_min, distance_max=distance_max,
-                           forward_pe_max=forward_pe_max, rating_score_min=rating_score_min,
-                           rating_score_max=rating_score_max)
+                           forward_pe_max=forward_pe_max,
+                           defensive_score_min=defensive_score_min, defensive_score_max=defensive_score_max,
+                           enterprising_score_min=enterprising_score_min, enterprising_score_max=enterprising_score_max)
 
 
 # ── SEC helpers ───────────────────────────────────────────────────────────────

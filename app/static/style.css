@@ -52,6 +52,42 @@ header {
     flex-wrap: wrap;
 }
 
+/* Hamburger button — hidden on desktop */
+.hamburger {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.hamburger span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: #555;
+    border-radius: 2px;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    transform-origin: center;
+}
+
+.hamburger.is-open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.hamburger.is-open span:nth-child(2) { opacity: 0; }
+.hamburger.is-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* Header top row (logo + hamburger) */
+.header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 15px;
+}
+
 .nav-link {
     text-decoration: none;
     color: #555;
@@ -305,6 +341,7 @@ main {
 
 .range-inputs input {
     flex: 1;
+    min-width: 0;
 }
 
 .range-inputs span {
@@ -872,13 +909,35 @@ footer {
         margin-bottom: 20px;
     }
 
+    .research-criteria {
+        padding: 15px;
+    }
+
     .logo {
         font-size: 24px;
+        margin-bottom: 0;
+    }
+
+    .header-top {
+        margin-bottom: 0;
+    }
+
+    .hamburger {
+        display: flex;
     }
 
     .navbar {
+        display: none;
         flex-direction: column;
         align-items: stretch;
+        gap: 4px;
+        padding: 12px 0 8px;
+        border-top: 1px solid #f0f0f0;
+        margin-top: 12px;
+    }
+
+    .navbar.nav-open {
+        display: flex;
     }
 
     .tabs {
@@ -924,7 +983,7 @@ footer {
     }
 
     .nav-link {
-        text-align: center;
+        text-align: left;
     }
 
     .stocks-grid {
@@ -947,6 +1006,17 @@ footer {
 @media (max-width: 480px) {
     .container {
         padding: 0 10px;
+    }
+
+    .research-criteria {
+        padding: 12px 10px;
+    }
+
+    .range-inputs {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 6px;
     }
 
     .logo {

@@ -3,13 +3,30 @@
 {% block title %}Stock Tracker - Research{% endblock %}
 
 {% block content %}
+<style>
+.scheduler-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+}
+@media (max-width: 600px) {
+    .scheduler-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+@media (max-width: 380px) {
+    .scheduler-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 <div class="portfolio-header">
     <h2>Research & Stock Suggestions</h2>
     <p class="subtitle">Find promising investment opportunities</p>
 </div>
 
 <!-- Cache Status and Download Button -->
-<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+<div style="background-color: #ecf0f1; border: 1px solid #bdc3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
     <div>
         <strong>Data Cache Status:</strong>
         <span id="cache-status" style="color: #27ae60; font-weight: bold;">{{ cache_status if cache_status else 'No cached data' }}</span>
@@ -52,7 +69,7 @@
     
     <div id="scheduler-settings" style="display: none;">
         <div style="margin-bottom: 15px; padding: 10px; background-color: white; border-radius: 4px;">
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div class="scheduler-grid" style="margin-bottom: 10px;">
                 <!-- Enable/Disable Toggle -->
                 <div>
                     <label style="display: flex; align-items: center; cursor: pointer;">
@@ -142,9 +159,9 @@
                     <span id="distance_display">{{ "%.1f"|format(distance_min) }}% - {{ "%.1f"|format(distance_max) }}%</span>
                 </div>
                 <div class="slider-container">
-                    <input type="range" id="distance_min_slider" min="0" max="100" step="0.5" 
+                    <input type="range" id="distance_min_slider" min="0" max="100" step="2" 
                            value="{{ distance_min }}" class="distance-slider">
-                    <input type="range" id="distance_max_slider" min="0" max="100" step="0.5" 
+                    <input type="range" id="distance_max_slider" min="0" max="100" step="2" 
                            value="{{ distance_max }}" class="distance-slider">
                 </div>
                 <input type="hidden" id="distance_min" name="distance_min" value="{{ distance_min }}">
@@ -161,18 +178,33 @@
                        value="{{ forward_pe_max }}" placeholder="Max P/E">
             </div>
 
-            <!-- Graham Rating Score Range -->
+            <!-- Defensive Score Range -->
             <div class="filter-group">
-                <label for="rating_score_min"><strong>Graham Rating Score Range</strong></label>
+                <label for="defensive_score_min"><strong>Defensive Score Range</strong></label>
                 <div class="range-inputs">
-                    <input type="number" id="rating_score_min" name="rating_score_min" min="0" max="10" step="0.1" 
-                           value="{{ "%.1f"|format(rating_score_min) }}" placeholder="Min">
+                    <input type="number" id="defensive_score_min" name="defensive_score_min" min="0" max="10" step="0.1"
+                           value="{{ "%.1f"|format(defensive_score_min) }}" placeholder="Min">
                     <span>to</span>
-                    <input type="number" id="rating_score_max" name="rating_score_max" min="0" max="10" step="0.1" 
-                           value="{{ "%.1f"|format(rating_score_max) }}" placeholder="Max">
+                    <input type="number" id="defensive_score_max" name="defensive_score_max" min="0" max="10" step="0.1"
+                           value="{{ "%.1f"|format(defensive_score_max) }}" placeholder="Max">
                 </div>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
-                    Filters on the composite (average) Graham score 0–10. Defensive and Enterprising scores are shown separately in the table.
+                    Graham Defensive Investor score (0–10). Stocks without a cached score are always included.
+                </div>
+            </div>
+
+            <!-- Enterprising Score Range -->
+            <div class="filter-group">
+                <label for="enterprising_score_min"><strong>Enterprising Score Range</strong></label>
+                <div class="range-inputs">
+                    <input type="number" id="enterprising_score_min" name="enterprising_score_min" min="0" max="10" step="0.1"
+                           value="{{ "%.1f"|format(enterprising_score_min) }}" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="enterprising_score_max" name="enterprising_score_max" min="0" max="10" step="0.1"
+                           value="{{ "%.1f"|format(enterprising_score_max) }}" placeholder="Max">
+                </div>
+                <div style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    Graham Enterprising Investor score (0–10). Stocks without a cached score are always included.
                 </div>
             </div>
         </div>
@@ -332,39 +364,47 @@ function resetFilters() {
     document.getElementById('distance_min_slider').value = 0;
     document.getElementById('distance_max_slider').value = 15;
     document.getElementById('forward_pe_max').value = 40;
-    document.getElementById('rating_score_min').value = 0;
-    document.getElementById('rating_score_max').value = 10;
+    document.getElementById('defensive_score_min').value = 0;
+    document.getElementById('defensive_score_max').value = 10;
+    document.getElementById('enterprising_score_min').value = 0;
+    document.getElementById('enterprising_score_max').value = 10;
     updateDistanceDisplay();
 }
 
 function updateDistanceDisplay() {
-    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
-    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
-    
+    const MIN_GAP = 2;
+    const minSlider = document.getElementById('distance_min_slider');
+    const maxSlider = document.getElementById('distance_max_slider');
+    let minVal = parseFloat(minSlider.value);
+    const maxVal = parseFloat(maxSlider.value);
+
+    // Clamp min so it can never be closer than MIN_GAP to max
+    if (minVal > maxVal - MIN_GAP) {
+        minVal = maxVal - MIN_GAP;
+        minSlider.value = minVal;
+    }
+
     document.getElementById('distance_min').value = minVal;
     document.getElementById('distance_max').value = maxVal;
-    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
-    
-    // Ensure min doesn't exceed max
-    if (minVal > maxVal) {
-        document.getElementById('distance_min_slider').value = maxVal;
-        document.getElementById('distance_min').value = maxVal;
-    }
+    document.getElementById('distance_display').textContent = minVal.toFixed(0) + '% - ' + maxVal.toFixed(0) + '%';
 }
 
 function updateMaxDistance() {
-    const minVal = parseFloat(document.getElementById('distance_min_slider').value);
-    const maxVal = parseFloat(document.getElementById('distance_max_slider').value);
-    
+    const MIN_GAP = 2;
+    const minSlider = document.getElementById('distance_min_slider');
+    const maxSlider = document.getElementById('distance_max_slider');
+    const minVal = parseFloat(minSlider.value);
+    let maxVal = parseFloat(maxSlider.value);
+
+    // Clamp max so it can never be closer than MIN_GAP to min
+    if (maxVal < minVal + MIN_GAP) {
+        maxVal = minVal + MIN_GAP;
+        maxSlider.value = maxVal;
+    }
+
     document.getElementById('distance_min').value = minVal;
     document.getElementById('distance_max').value = maxVal;
-    document.getElementById('distance_display').textContent = minVal.toFixed(1) + '% - ' + maxVal.toFixed(1) + '%';
-    
-    // Ensure max doesn't go below min
-    if (maxVal < minVal) {
-        document.getElementById('distance_max_slider').value = minVal;
-        document.getElementById('distance_max').value = minVal;
-    }
+    document.getElementById('distance_display').textContent = minVal.toFixed(0) + '% - ' + maxVal.toFixed(0) + '%';
 }
 
 document.getElementById('distance_min_slider').addEventListener('input', updateDistanceDisplay);
@@ -764,8 +804,10 @@ function resetFilters() {
     document.getElementById('distance_max').value = '100';
     document.getElementById('distance_display').textContent = '0.0% - 100.0%';
     document.getElementById('forward_pe_max').value = '100';
-    document.getElementById('rating_score_min').value = '0';
-    document.getElementById('rating_score_max').value = '10';
+    document.getElementById('defensive_score_min').value = '0';
+    document.getElementById('defensive_score_max').value = '10';
+    document.getElementById('enterprising_score_min').value = '0';
+    document.getElementById('enterprising_score_max').value = '10';
 }
 
 // Scheduler functions
