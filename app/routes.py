@@ -813,27 +813,75 @@ def dashboard():
     portfolios = PortfolioMeta.query.filter_by(is_active=True).order_by(PortfolioMeta.sort_order).all()
     watchlists = WatchlistMeta.query.filter_by(is_active=True).order_by(WatchlistMeta.sort_order).all()
 
-    portfolio_cards = []
+    # First pass: collect sessions, stocks, and account start dates
+    portfolio_infos = []
+    all_start_dates = set()
     for p in portfolios:
         session = db_manager.get_portfolio_session(p.id)
         stocks = session.query(Stock).all()
+        account = session.query(Account).first()
+        start_date = account.start_date if account else None
+        if start_date:
+            all_start_dates.add(start_date)
+        portfolio_infos.append((p, session, stocks, account, start_date))
+
+    # Fetch S&P 500 history once, spanning from the earliest portfolio start date
+    sp500_returns = {}  # start_date -> float percent return
+    if all_start_dates:
+        earliest = min(all_start_dates)
+        try:
+            sp500_hist = yf.Ticker('^GSPC').history(start=earliest)
+            if not sp500_hist.empty:
+                sp500_latest = float(sp500_hist['Close'].iloc[-1])
+                for d in all_start_dates:
+                    from_data = sp500_hist[sp500_hist.index.date >= d]
+                    if not from_data.empty:
+                        start_price = float(from_data['Close'].iloc[0])
+                        if start_price > 0:
+                            sp500_returns[d] = (sp500_latest - start_price) / start_price * 100
+        except Exception as e:
+            print(f'Error fetching S&P 500 data for dashboard: {e}')
+
+    # Second pass: build portfolio cards with return metrics
+    portfolio_cards = []
+    for p, session, stocks, account, start_date in portfolio_infos:
         total_current_value = 0
         total_current_cost = 0
         total_realized = 0
+        total_cost_basis = 0
         active_count = 0
+        stock_returns = []  # (symbol, pct_change) for active holdings
 
         for stock in stocks:
             current_shares = stock.get_current_shares_from_transactions(session)
             total_realized += stock.get_realized_gains_from_transactions(session)
+            total_cost_basis += stock.get_cost_basis_from_transactions(session)
             if current_shares > 0:
                 active_count += 1
-                total_current_cost += stock.get_current_cost_basis_from_transactions(session)
+                cost = stock.get_current_cost_basis_from_transactions(session)
+                total_current_cost += cost
                 cv = stock.get_current_value(session)
                 if cv is not None:
                     total_current_value += cv
+                    if cost > 0:
+                        stock_returns.append((stock.symbol, (cv - cost) / cost * 100))
 
         unrealized = (total_current_value - total_current_cost) if total_current_value > 0 else None
-        account = session.query(Account).first()
+
+        # Total portfolio return % ((unrealized + realized gains) / account initial value)
+        total_return_pct = None
+        unrealized_val = (total_current_value - total_current_cost) if total_current_value > 0 else 0
+        if account and account.initial_value and account.initial_value > 0:
+            total_return_pct = (unrealized_val + total_realized) / account.initial_value * 100
+
+        sp500_return_pct = sp500_returns.get(start_date) if start_date else None
+        vs_sp500 = (total_return_pct - sp500_return_pct
+                    if total_return_pct is not None and sp500_return_pct is not None
+                    else None)
+
+        stock_returns.sort(key=lambda x: x[1], reverse=True)
+        top_stock = stock_returns[0] if stock_returns else None
+        bottom_stock = stock_returns[-1] if len(stock_returns) > 1 else None
 
         portfolio_cards.append({
             'meta': p,
@@ -843,6 +891,12 @@ def dashboard():
             'unrealized_gains': unrealized,
             'realized_gains': total_realized,
             'account_balance': account.initial_value if account else None,
+            'start_date': start_date,
+            'total_return_pct': total_return_pct,
+            'sp500_return_pct': sp500_return_pct,
+            'vs_sp500': vs_sp500,
+            'top_stock': top_stock,
+            'bottom_stock': bottom_stock,
         })
 
     watchlist_cards = []
