@@ -207,6 +207,32 @@
                     Graham Enterprising Investor score (0–10). Stocks without a cached score are always included.
                 </div>
             </div>
+
+            <!-- Sector Filter -->
+            {% if available_sectors %}
+            <div class="filter-group">
+                <label><strong>Sectors</strong></label>
+                <div style="border: 1px solid #bdc3c7; border-radius: 4px; padding: 10px; background-color: white;">
+                    <div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="selectAllSectors()">Select All</button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="deselectAllSectors()">Deselect All</button>
+                        <span id="sector-count" style="font-size: 12px; color: #7f8c8d;"></span>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px 20px;" id="sector-checkboxes">
+                        {% for sector in available_sectors %}
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 14px; cursor: pointer; white-space: nowrap; font-weight: normal; margin-bottom: 0;">
+                            <input type="checkbox" name="sectors" value="{{ sector }}" class="sector-checkbox"
+                                   {% if not selected_sectors or sector in selected_sectors %}checked{% endif %}>
+                            {{ sector }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <div style="font-size: 12px; color: #7f8c8d; margin-top: 8px;">
+                        Uncheck sectors to exclude them from results. If all are checked (or none checked), no sector filter is applied.
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -358,16 +384,53 @@
 {% endif %}
 
 <script>
+function selectAllSectors() {
+    document.querySelectorAll('.sector-checkbox').forEach(cb => cb.checked = true);
+    updateSectorCount();
+}
+
+function deselectAllSectors() {
+    document.querySelectorAll('.sector-checkbox').forEach(cb => cb.checked = false);
+    updateSectorCount();
+}
+
+function updateSectorCount() {
+    const total = document.querySelectorAll('.sector-checkbox').length;
+    const checked = document.querySelectorAll('.sector-checkbox:checked').length;
+    const countEl = document.getElementById('sector-count');
+    if (countEl) {
+        if (checked === total) {
+            countEl.textContent = 'All sectors selected';
+        } else if (checked === 0) {
+            countEl.textContent = 'No sectors selected (no filter)';
+        } else {
+            countEl.textContent = `${checked} of ${total} selected`;
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Wire up live count updates
+    document.querySelectorAll('.sector-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateSectorCount);
+    });
+    updateSectorCount();
+});
+
 function resetFilters() {
     document.getElementById('market_cap_min').value = 0;
     document.getElementById('market_cap_max').value = 10000000;
     document.getElementById('distance_min_slider').value = 0;
-    document.getElementById('distance_max_slider').value = 15;
-    document.getElementById('forward_pe_max').value = 40;
+    document.getElementById('distance_max_slider').value = 100;
+    document.getElementById('distance_min').value = 0;
+    document.getElementById('distance_max').value = 100;
+    document.getElementById('distance_display').textContent = '0% - 100%';
+    document.getElementById('forward_pe_max').value = 100;
     document.getElementById('defensive_score_min').value = 0;
     document.getElementById('defensive_score_max').value = 10;
     document.getElementById('enterprising_score_min').value = 0;
     document.getElementById('enterprising_score_max').value = 10;
+    selectAllSectors();
     updateDistanceDisplay();
 }
 
@@ -794,21 +857,6 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(() => {});
     }, 30000);
 });
-
-function resetFilters() {
-    document.getElementById('market_cap_min').value = '0';
-    document.getElementById('market_cap_max').value = '10000000';
-    document.getElementById('distance_min_slider').value = '0';
-    document.getElementById('distance_max_slider').value = '100';
-    document.getElementById('distance_min').value = '0';
-    document.getElementById('distance_max').value = '100';
-    document.getElementById('distance_display').textContent = '0.0% - 100.0%';
-    document.getElementById('forward_pe_max').value = '100';
-    document.getElementById('defensive_score_min').value = '0';
-    document.getElementById('defensive_score_max').value = '10';
-    document.getElementById('enterprising_score_min').value = '0';
-    document.getElementById('enterprising_score_max').value = '10';
-}
 
 // Scheduler functions
 function toggleSchedulerSettings() {

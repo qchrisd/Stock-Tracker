@@ -1709,6 +1709,7 @@ def research():
     suggestions = []
     error_message = None
     cache_status = None
+    available_sectors = []
 
     symbols_input = request.args.get('symbols', '').strip()
     market_cap_min_m = request.args.get('market_cap_min', 0, type=float)
@@ -1722,10 +1723,25 @@ def research():
     defensive_score_max = request.args.get('defensive_score_max', 10, type=float)
     enterprising_score_min = request.args.get('enterprising_score_min', 0, type=float)
     enterprising_score_max = request.args.get('enterprising_score_max', 10, type=float)
+    selected_sectors = request.args.getlist('sectors')
+
+    _default_sectors = [
+        'Basic Materials', 'Communication Services', 'Consumer Cyclical',
+        'Consumer Defensive', 'Energy', 'Financial Services', 'Healthcare',
+        'Industrials', 'Real Estate', 'Technology', 'Utilities', 'N/A',
+    ]
 
     cs = db_manager.get_cache_session()
     try:
         cache_count = cs.query(StockCache).count()
+        if cache_count > 0:
+            sector_rows = cs.query(StockCache.sector).distinct().order_by(StockCache.sector).all()
+            available_sectors = sorted([r[0] for r in sector_rows if r[0] and r[0] != 'N/A'])
+            if any(r[0] == 'N/A' for r in sector_rows if r[0]):
+                available_sectors.append('N/A')
+        else:
+            available_sectors = _default_sectors
+
         if symbols_input:
             symbols_to_search = [s.strip().upper() for s in symbols_input.split(',') if s.strip()]
             cache_status = f'Searching {len(symbols_to_search)} custom symbols (live data)'
@@ -1745,6 +1761,8 @@ def research():
                     mc = info.get('marketCap')
                     if not mc: continue
                     mc_b = mc / 1e9
+                    stock_sector = info.get('sector', 'N/A')
+                    if selected_sectors and stock_sector not in selected_sectors: continue
                     if not (distance_min <= dist <= distance_max and fpe <= forward_pe_max
                             and market_cap_min <= mc_b <= market_cap_max): continue
                     eps = info.get('trailingEps')
@@ -1758,7 +1776,7 @@ def research():
                         'symbol': symbol, 'name': info.get('longName', symbol),
                         'current_price': current_price, 'week_52_low': w52l, 'week_52_high': w52h,
                         'distance_from_low': dist, 'forward_pe': fpe, 'market_cap': mc,
-                        'market_cap_billions': mc_b, 'sector': info.get('sector', 'N/A'),
+                        'market_cap_billions': mc_b, 'sector': stock_sector,
                         'dividend_yield': info.get('dividendYield', 0),
                         'pe_ratio': info.get('trailingPE'), 'eps': eps,
                         'book_value_per_share': bvps, 'graham_number': gn,
@@ -1770,12 +1788,15 @@ def research():
                 except Exception: continue
         elif cache_count > 0:
             cache_status = f'\u2713 {cache_count:,} stocks cached and ready to search'
-            cached_stocks = cs.query(StockCache).filter(
+            cache_query = cs.query(StockCache).filter(
                 StockCache.market_cap_billions >= market_cap_min,
                 StockCache.market_cap_billions <= market_cap_max,
                 StockCache.distance_from_low >= distance_min,
                 StockCache.distance_from_low <= distance_max,
-            ).all()
+            )
+            if selected_sectors:
+                cache_query = cache_query.filter(StockCache.sector.in_(selected_sectors))
+            cached_stocks = cache_query.all()
             for stock in cached_stocks:
                 fpe = stock.forward_pe or stock.trailing_pe or 0
                 if fpe == 0 or fpe > forward_pe_max: continue
@@ -1816,7 +1837,8 @@ def research():
                            distance_min=distance_min, distance_max=distance_max,
                            forward_pe_max=forward_pe_max,
                            defensive_score_min=defensive_score_min, defensive_score_max=defensive_score_max,
-                           enterprising_score_min=enterprising_score_min, enterprising_score_max=enterprising_score_max)
+                           enterprising_score_min=enterprising_score_min, enterprising_score_max=enterprising_score_max,
+                           available_sectors=available_sectors, selected_sectors=selected_sectors)
 
 
 # ── SEC helpers ───────────────────────────────────────────────────────────────
