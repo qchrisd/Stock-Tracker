@@ -1526,6 +1526,9 @@ def get_chart_data(portfolio_id):
             if hist:
                 filtered = [d for d in hist if d['date'] >= start_date.isoformat()]
                 if filtered:
+                    base_price = filtered[0]['price']
+                    for d in filtered:
+                        d['percent_change'] = ((d['price'] - base_price) / base_price) * 100
                     chart_data['stocks'][stock.symbol] = {'name': stock.symbol, 'data': filtered}
         return jsonify(chart_data)
     except Exception as e:
@@ -1556,10 +1559,13 @@ def get_portfolio_average_chart_data(portfolio_id):
             hist = stock.get_historical_data()
             if hist:
                 iv = stock.get_initial_value(session)
-                for dp in hist:
-                    if dp['date'] >= start_date.isoformat():
+                filtered = [dp for dp in hist if dp['date'] >= start_date.isoformat()]
+                if filtered:
+                    base_price = filtered[0]['price']
+                    for dp in filtered:
+                        rebased_pct = ((dp['price'] - base_price) / base_price) * 100
                         dk = dp['date']
-                        all_dates.setdefault(dk, []).append({'percent_change': dp['percent_change'], 'iv': iv})
+                        all_dates.setdefault(dk, []).append({'percent_change': rebased_pct, 'iv': iv})
                         total_iv_at_date[dk] = total_iv_at_date.get(dk, 0) + iv
 
         avg_data = []
